@@ -3,6 +3,16 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
+const APP_VERSION = '1.1.0';
+const NOVEDADES = {
+  '1.1.0': [
+    '🔄 Aviso de <b>nueva versión</b>: cuando publiques cambios en GitHub, la app te lo dirá y se actualiza con un toque.',
+    '📉 <b>Subidas y bajadas</b>: cada gasolinera muestra si su precio ha subido o bajado desde ayer (aparece a partir del segundo día de historial).',
+    '↻ Botón para <b>actualizar</b> ubicación y precios, y aviso de cuánto hace que se actualizaron.',
+    '📤 <b>Compartir</b> una gasolinera o un cargador por WhatsApp, Telegram, etc.',
+    '⛽ <b>Calculadora de importe</b>: cuántos litros te dan 20, 30 o 50 € en cada gasolinera.',
+  ],
+};
 const FUEL_NAMES = {
   g95: 'Gasolina 95', g95p: 'Gasolina 95 Premium', e10: 'Gasolina 95 E10', g98: 'Gasolina 98',
   dsl: 'Diésel', dslp: 'Diésel Premium', hvo: 'Diésel renovable (HVO)', glp: 'GLP (autogás)',
@@ -368,12 +378,40 @@ function renderChips() {
 function claseP(p, cortes) { return p <= cortes[0] ? 'p-ok' : p <= cortes[1] ? 'p-mid' : 'p-bad'; }
 function cortesDe(lista) { const s = lista.map((e) => e.precio).sort((a, b) => a - b); return [percentil(s, 0.33), percentil(s, 0.66)]; }
 
+// Variación del precio desde ayer (milésimas de euro), usando el historial de la provincia
+function deltaAyer(e, f) {
+  const h = S.hist[e.prov];
+  const v = h?.s?.[e.id]?.[f];
+  if (!v || v.length < 2 || !e.p[f]) return 0;
+  const hoy = h.d[h.d.length - 1];
+  // si el historial ya incluye hoy comparamos con el penúltimo día; si no, con el último
+  const ayer = v[v.length - (hoy === fechaHoy() ? 2 : 1)];
+  return ayer ? e.p[f] - ayer : 0;
+}
+const fechaHoy = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+function cargarHistLista(lista) {
+  if (!['g95', 'g98', 'dsl', 'dslp'].includes(S.cfg.fuel)) return;
+  const faltan = [...new Set(lista.slice(0, S.limite).map((e) => e.prov))].filter((p) => !S.hist[p] && !S.histPedido?.[p]);
+  if (!faltan.length) return;
+  S.histPedido = S.histPedido || {};
+  faltan.forEach((p) => (S.histPedido[p] = 1));
+  Promise.all(faltan.map(histProv)).then(() => { if (S.cfg.vista === 'lista' && S.cfg.modo === 'fuel') renderLista(); });
+}
+function haceCuanto() {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(S.fecha || '');
+  if (!m) return '';
+  const min = Math.round((Date.now() - new Date(+m[3], m[2] - 1, +m[1], +m[4], +m[5]).getTime()) / 60000);
+  return min < 2 ? 'ahora mismo' : min < 60 ? `hace ${min} min` : min < 1440 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.round(min / 1440)} días`;
+}
+
 function tarjeta(e, cortes, ahora = new Date()) {
   const ab = horarioHoy(e.hor, ahora);
   const otro = ES_GASOLINA(S.cfg.fuel) ? 'dsl' : 'g95';
   const extras = [];
   extras.push(`<span class="tag"><b>${km(e.d)}</b></span>`);
   if (e.p[otro]) extras.push(`<span class="tag">${FUEL_SHORT[otro]} <b>${pr(e.p[otro])}</b></span>`);
+  const dl = deltaAyer(e, S.cfg.fuel);
+  if (dl) extras.push(`<span class="tag ${dl < 0 ? 'baja' : 'sube'}">${dl < 0 ? '▼' : '▲'} ${Math.abs(dl / 10).toLocaleString('es-ES', { maximumFractionDigits: 1 })} cts</span>`);
   if (S.cfg.orden === 'total') extras.push(`<span class="tag">Total <b>${eur(e.total.total)}</b></span>`);
   if (esLowcost(e)) extras.push('<span class="tag lc">Low cost</span>');
   if (ab === false) extras.push('<span class="tag cl">Cerrada ahora</span>');
@@ -405,12 +443,13 @@ function renderLista() {
   let b = '';
   if (mejor.id === cerca.id) b = `<b>La más cercana es también la que más te conviene</b><small>${esc(nombreMarca(marca(mejor.rot)))} a ${km(mejor.d)} · ${pr(mejor.precio)} €/L · llenar ${c.litros} L: ${eur(mejor.total.llenar)}</small>`;
   else b = `<b>Mejor opción: ${esc(nombreMarca(marca(mejor.rot)))} a ${km(mejor.d)}</b> · ${pr(mejor.precio)} €/L<small>Llenando ${c.litros} L ahorras ${eur(Math.max(0, ahorro))} frente a la más cercana, contando el desplazamiento. <button data-est="${mejor.id}">Ver</button></small>`;
-  b += `<small>${lista.length} gasolineras · media ${pr(media)} €/L · precios del ${esc(S.fecha.slice(0, 16))}</small>`;
+  b += `<small>${lista.length} gasolineras · media ${pr(media)} €/L · precios ${haceCuanto()}</small>`;
   $('#banner').innerHTML = `<div class="banner">${b}</div>`;
   const ahora = new Date();
   let h = lista.slice(0, S.limite).map((e) => tarjeta(e, cortes, ahora)).join('');
   if (lista.length > S.limite) h += `<button class="more" id="mas">Ver más (${lista.length - S.limite})</button>`;
   $('#lista').innerHTML = h;
+  cargarHistLista(lista);
 }
 
 function tarjetaEv(p) {
@@ -482,6 +521,13 @@ function abrirHoja(html) {
   $('#sheet').classList.add('on'); $('#sheetBg').classList.add('on');
 }
 function cerrarHoja() { $('#sheet').classList.remove('on'); $('#sheetBg').classList.remove('on'); }
+async function compartir(titulo_, texto, lat, lon) {
+  const url = `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+  try {
+    if (navigator.share) await navigator.share({ title: titulo_, text: texto, url });
+    else { await navigator.clipboard.writeText(`${texto}\n${url}`); toast('Copiado al portapapeles'); }
+  } catch {}
+}
 function navLinks(lat, lon) {
   return `<div class="navs">
     <a href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}" target="_blank" rel="noopener">Google Maps</a>
@@ -507,7 +553,12 @@ async function detalle(id) {
   let calc = '';
   if (e.precio) {
     const t = coste(e);
-    calc = `<div class="box"><h3>🧮 Calculadora (${esc(FUEL_NAMES[c.fuel])})</h3>
+    const litros = (eu) => (eu / (e.precio / 1000)).toLocaleString('es-ES', { maximumFractionDigits: 1 });
+    calc = `<div class="box"><h3>💶 ¿Cuántos litros me dan?</h3>
+      <div class="kv"><span>20 €</span><span>${litros(20)} L</span></div>
+      <div class="kv"><span>30 €</span><span>${litros(30)} L</span></div>
+      <div class="kv"><span>50 €</span><span>${litros(50)} L</span></div></div>`;
+    calc += `<div class="box"><h3>🧮 Calculadora (${esc(FUEL_NAMES[c.fuel])})</h3>
       <div class="kv"><span>Repostar ${c.litros} L</span><span>${eur(t.llenar)}</span></div>
       <div class="kv"><span>Ir y volver (${km(d * 2)}, ${c.consumo} L/100 km)</span><span>${eur(t.viaje)}</span></div>
       <div class="kv tot"><span>Coste real</span><span>${eur(t.total)}</span></div>
@@ -519,6 +570,7 @@ async function detalle(id) {
     ${ab === true ? '<span class="down">● Abierta ahora</span>' : ab === false ? '<span class="up">● Cerrada ahora</span>' : ''} <span class="muted">${esc(e.hor)}</span>
     ${esLowcost(e) ? ' · <span class="tag lc">Low cost</span>' : ''}</p>
     ${navLinks(e.lat, e.lon)}
+    <button class="btn alt share" data-share="est" data-id="${e.id}">📤 Compartir</button>
     <table class="ptable">${filas}</table>
     <div class="muted">Comparado con la media de la zona (${zona.length} gasolineras). Precios del ${esc(S.fecha)}.</div>
     ${calc}
@@ -555,6 +607,7 @@ function detalleEv(id) {
   abrirHoja(`<h2><span>${esc(pt.name || pt.op || 'Punto de recarga')}</span><button class="favbtn ${fav ? 'on' : ''}" data-favev="${id}" aria-label="Favorito">${fav ? '★' : '☆'}</button></h2>
     <p class="addr">${esc(pt.op)}${pt.op ? ' · ' : ''}${km(d)}${pt.fee === 0 ? ' · <b class="down">Gratis</b>' : pt.fee === 1 ? ' · De pago' : ''}${pt.hor ? '<br><span class="muted">Horario: ' + esc(pt.hor === '24/7' ? '24 horas' : pt.hor) + '</span>' : ''}</p>
     ${navLinks(pt.lat, pt.lon)}
+    <button class="btn alt share" data-share="ev" data-id="${id}">📤 Compartir</button>
     <table class="ptable">${sk}</table>
     ${t ? `<div class="box"><h3>🔋 Tu ${esc(c.evModelo)} del 10 % al 80 %</h3>
       <div class="kv"><span>Conector usado</span><span>${SOCKET_NAMES[t.t]} a ${t.ef.toLocaleString('es-ES')} kW</span></div>
@@ -703,6 +756,9 @@ function renderAjustes() {
     <div class="muted">Una por línea. Se usan para el filtro «Low cost».</div>
     <textarea id="lowcostTxt">${esc(c.lowcostList.join('\n'))}</textarea>
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn" id="guardarLc">Guardar</button><button class="btn alt" id="resetLc">Restaurar lista</button></div>
+    <h2>🔄 Versión</h2>
+    <div class="box"><div class="kv"><span>GasoCerca</span><span><b>v${APP_VERSION}</b></span></div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="buscarAct">Buscar actualizaciones</button><button class="btn alt" id="verNovedades">Novedades</button></div></div>
     <h2>ℹ️ Datos</h2>
     <div class="box"><div class="kv"><span>Precios</span><span>${esc(S.fecha || '—')}</span></div>
     <div class="kv"><span>Gasolineras</span><span>${S.est.length.toLocaleString('es-ES')}</span></div>
@@ -746,6 +802,17 @@ document.addEventListener('click', (ev) => {
     t.classList.toggle('on'); t.textContent = S.favsEv.has(id) ? '★' : '☆'; render(); return;
   }
   if (t.dataset.marca) { t.classList.toggle('on'); return; }
+  if (t.dataset.share === 'est') {
+    const e = S.est.find((x) => x.id == t.dataset.id);
+    const precios = ['g95', 'dsl'].filter((f) => e.p[f]).map((f) => `${FUEL_NAMES[f]}: ${pr(e.p[f])} €`).join(' · ');
+    compartir(nombreMarca(marca(e.rot)), `⛽ ${nombreMarca(marca(e.rot))} – ${titulo(e.dir)}, ${titulo(e.loc)}\n${precios}`, e.lat, e.lon);
+    return;
+  }
+  if (t.dataset.share === 'ev') {
+    const p = S.pts.find((x) => x[9] === t.dataset.id);
+    compartir(p[2] || p[3] || 'Punto de recarga', `⚡ ${p[2] || p[3] || 'Punto de recarga'}${p[5] ? ' · hasta ' + p[5] + ' kW' : ''}`, p[0], p[1]);
+    return;
+  }
   if (t.dataset.conect) {
     const k = t.dataset.conect; const set = new Set(c.conectores);
     if (set.has(k)) { set.delete(k); if (k === 't2') set.delete('t2c'); } else { set.add(k); if (k === 't2') set.add('t2c'); }
@@ -753,6 +820,9 @@ document.addEventListener('click', (ev) => {
   }
   switch (t.id) {
     case 'btnLoc': localizar(); break;
+    case 'refrescar': t.classList.add('gira'); setTimeout(() => t.classList.remove('gira'), 900); if (S.pos?.gps !== false) localizar(true); datos(); comprobarVersion(); break;
+    case 'updBtn': location.reload(); break;
+    case 'buscarAct': comprobarVersion(true); break;
     case 'cerrarHoja': cerrarHoja(); break;
     case 'mas': S.limite += 60; render(); break;
     case 'chipMarcas': hojaMarcas(); break;
@@ -762,6 +832,7 @@ document.addEventListener('click', (ev) => {
     case 'guardarLc': c.lowcostList = $('#lowcostTxt').value.split('\n').map((s) => s.trim()).filter(Boolean); saveCfg(); toast('Lista guardada'); break;
     case 'resetLc': c.lowcostList = LOWCOST_DEF; saveCfg(); render(); break;
     case 'directo': datos(true); break;
+    case 'verNovedades': mostrarNovedades(APP_VERSION); break;
     case 'instalar': S.installEvt?.prompt(); S.installEvt = null; break;
     case 'borrar': if (confirm('¿Borrar ajustes y favoritas?')) { Object.keys(localStorage).filter((k) => k.startsWith('gc.')).forEach((k) => localStorage.removeItem(k)); location.reload(); } break;
   }
@@ -794,7 +865,37 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ---------------------------------------------------------------- Inicio
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+let swReg = null;
+function avisoActualizacion() {
+  const u = $('#upd');
+  u.innerHTML = '✨ Hay una nueva versión de GasoCerca <button id="updBtn">Actualizar</button>';
+  u.classList.add('on');
+}
+async function comprobarVersion(manual) {
+  if (!swReg) { if (manual) toast('Las actualizaciones automáticas solo funcionan en la app publicada'); return; }
+  try { await swReg.update(); } catch {}
+  if (manual && !swReg.installing && !swReg.waiting) setTimeout(() => { if (!$('#upd').classList.contains('on')) toast(`Tienes la última versión (v${APP_VERSION})`); }, 1500);
+}
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  const habiaControlador = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').then((r) => { swReg = r; }).catch(() => {});
+  // el nuevo service worker toma el control en cuanto se instala: avisamos para recargar
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (habiaControlador) avisoActualizacion(); });
+}
+function mostrarNovedades(v) {
+  const items = NOVEDADES[v] || [];
+  abrirHoja(`<h2>✨ Novedades de la v${v}</h2><p class="addr">La app se ha actualizado sola desde GitHub.</p>
+    <ul class="novedades">${items.map((i) => `<li>${i}</li>`).join('')}</ul>
+    <button class="btn" id="cerrarHoja" style="width:100%">¡Entendido!</button>`);
+}
+(() => {
+  const anterior = load('version', null);
+  if (anterior !== APP_VERSION) {
+    // usuarios que ya tenían la app (tienen ajustes guardados) ven las novedades
+    if (anterior || localStorage.getItem('gc.cfg')) setTimeout(() => mostrarNovedades(APP_VERSION), 1200);
+    save('version', APP_VERSION);
+  }
+})();
 render();
 datos();
 if (!S.pos || S.pos.gps) localizar(true);
