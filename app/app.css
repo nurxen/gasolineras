@@ -248,3 +248,13 @@ body.ev .refresh { color: var(--ev); }
 #mapaRuta { height: 220px; border-radius: var(--r); margin: 10px 0 4px; border: 1px solid var(--line); }
 .rchips { padding: 6px 0; }
 #v-ruta .banner { margin: 6px 0 0; }
+
+/* ---------- v1.4.1: ayuda de ubicación ---------- */
+.pasos { padding-left: 20px; margin: 6px 0 10px; }
+.pasos li { margin: 8px 0; line-height: 1.45; font-size: 14.5px; }
+.geoaviso { margin: 10px 10px 0; padding: 9px 12px; border-radius: 12px; background: var(--mid-bg); color: var(--mid); font-size: 13.5px; font-weight: 600; }
+.geoaviso button { text-decoration: underline; font-weight: 750; color: inherit; padding: 0; }
+.empty .btn { width: 100%; }
+
+.veredicto .lnk { text-decoration: underline; font-weight: 750; color: inherit; padding: 0; }
+.box h3 small { font-weight: 500; }
