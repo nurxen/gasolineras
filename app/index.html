@@ -30,7 +30,8 @@
         <span class="dot"></span><span id="locTxt">Buscando tu ubicación…</span>
       </button>
       <form id="buscar" class="search" autocomplete="off">
-        <input id="q" type="search" placeholder="Pueblo o código postal" enterkeyhint="search" />
+        <input id="q" type="search" placeholder="Pueblo, dirección o CP" enterkeyhint="search" autocomplete="off" />
+        <div id="sug" class="sug"></div>
       </form>
       <button id="refrescar" class="refresh" title="Actualizar ubicación y precios" aria-label="Actualizar">↻</button>
     </div>
@@ -43,6 +44,7 @@
       <div id="banner"></div>
       <div id="lista" class="lista"></div>
     </section>
+    <section id="v-ruta" class="view"><div id="ruta" class="pad"></div></section>
     <section id="v-mapa" class="view"><div id="map"></div></section>
     <section id="v-favs" class="view"><div id="favs" class="lista"></div></section>
     <section id="v-tend" class="view"><div id="tend" class="pad"></div></section>
@@ -51,6 +53,7 @@
 
   <nav class="bottom">
     <button data-v="lista" class="on"><i>☰</i>Cerca</button>
+    <button data-v="ruta"><i>🛣️</i>Ruta</button>
     <button data-v="mapa"><i>🗺️</i>Mapa</button>
     <button data-v="favs"><i>★</i>Favoritas</button>
     <button data-v="tend"><i>📈</i>Tendencia</button>

@@ -3,8 +3,15 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 const NOVEDADES = {
+  '1.4.0': [
+    '🛣️ <b>Modo Ruta</b>: dime adónde vas y te enseño las gasolineras (o cargadores) <b>de camino</b>, con los minutos de desvío, en qué kilómetro están y a qué hora llegas. Solo las que no te obligan a salirte mucho.',
+    '🧭 <b>Parada en el navegador</b>: abre Google Maps con la gasolinera como parada intermedia de tu viaje.',
+    '↔️ Te avisa si una gasolinera de autovía puede estar <b>en el sentido contrario</b>.',
+    '🔎 <b>Buscador arreglado</b>: ahora encuentra cualquier pueblo, ciudad, dirección o código postal de España, con sugerencias mientras escribes (antes fallaba con nombres como «Las Rozas» o con pueblos sin gasolinera).',
+    '🏘️ Los nombres de pueblos se ven bien: «La Roda» en vez de «Roda (la)».',
+  ],
   '1.3.0': [
     '⏱️ <b>Ahora cuenta tu tiempo</b>: la app calcula los minutos de ida y vuelta y los valora (10 €/h por defecto). Si ahorras 1 € pero tienes que conducir media hora, ya no te dirá que compensa.',
     '🚗 Cada gasolinera muestra los <b>minutos que tardas</b> en llegar, y en el detalle ves si <b>compensa o no</b> frente a la más cercana.',
@@ -49,6 +56,7 @@ const DEF = {
   modo: 'fuel', vista: 'lista',
   radio: 5, fuel: 'g95', orden: 'total',
   lowcost: false, abiertas: false, marcas: [],
+  rutaDesvio: 5, rutaKm: 0, rutaOrden: 'total',
   velMedia: 25, valorHora: 10, // para valorar el tiempo del desplazamiento
   litros: 40, consumo: 5, // híbrido
   evRadio: 10, conectores: ['ccs', 't2', 't2c'], potMin: 0, gratis: false, evOrden: 'dist', sinDatos: true,
@@ -106,6 +114,12 @@ function marca(rot) {
   return m;
 }
 const nombreMarca = (m) => (m === 'MOEVE' ? 'Moeve (Cepsa)' : m === 'SIN MARCA' ? 'Sin marca' : m === 'BP' || m === 'Q8' || m === 'HAM' || m === 'DST' ? m : titulo(m));
+// "ROZAS DE MADRID (LAS)" -> "Las Rozas de Madrid"
+function nombreLoc(s) {
+  const m = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(String(s || '').trim());
+  const t = m ? `${m[2]}${/'$/.test(m[2]) ? '' : ' '}${m[1]}` : s;
+  return titulo(t).replace(/\b(De|Del|La|Las|Los|El|Y|En)\b/g, (w, _, i) => (i === 0 ? w : w.toLowerCase()));
+}
 function esLowcost(e) {
   const n = norm(e.rot);
   return S.cfg.lowcostList.some((b) => b && n.includes(norm(b)));
@@ -266,28 +280,122 @@ function fijarPos(p) {
 }
 function textoPos() {
   if (!S.pos) return 'Sin ubicación: busca tu pueblo →';
-  if (!S.pos.gps) return '📍 ' + S.pos.txt;
   let cerca = null, dmin = 1e9;
   for (const e of S.est) { const d = dist(S.pos.lat, S.pos.lon, e.lat, e.lon); if (d < dmin) { dmin = d; cerca = e; } }
-  const t = cerca && dmin < 15 ? 'Cerca de ' + titulo(cerca.loc) : 'Tu ubicación';
+  if (!S.pos.gps) { if (cerca && !S.pos.prov) S.pos.prov = cerca.prov; return '📍 ' + S.pos.txt; }
+  const t = cerca && dmin < 15 ? 'Cerca de ' + nombreLoc(cerca.loc) : 'Tu ubicación';
   S.pos.txt = t; S.pos.prov = cerca?.prov;
   save('pos', S.pos);
   return t + (S.pos.prec ? ` (±${Math.round(S.pos.prec)} m)` : '');
 }
-function buscarLugar(q) {
-  const n = norm(q);
-  if (!n) return;
-  let m = /^\d{5}$/.test(n) ? S.est.filter((e) => e.cp === n) : S.est.filter((e) => norm(e.loc) === n);
-  if (!m.length) m = S.est.filter((e) => norm(e.loc).startsWith(n) || norm(e.cp).startsWith(n));
-  if (!m.length) m = S.est.filter((e) => norm(e.loc).includes(n) || norm(e.dir).includes(n));
-  if (!m.length) { toast('No encuentro ese lugar. Prueba con el nombre del pueblo o el CP.'); return; }
-  const lugar = norm(m[0].loc);
-  const mismo = m.filter((e) => norm(e.loc) === lugar);
-  const lat = mismo.reduce((a, e) => a + e.lat, 0) / mismo.length, lon = mismo.reduce((a, e) => a + e.lon, 0) / mismo.length;
-  fijarPos({ lat, lon, gps: false, txt: titulo(m[0].loc), prov: m[0].prov });
+// ---------------------------------------------------------------- Buscador de lugares
+// 1) pueblos con gasolinera (instantáneo, sin conexión)  2) OpenStreetMap/Nominatim (cualquier sitio de España)
+let idxLoc = null;
+function indiceLocalidades() {
+  if (idxLoc && idxLoc.n === S.est.length) return idxLoc;
+  const m = new Map(), cps = new Map();
+  for (const e of S.est) {
+    const k = norm(nombreLoc(e.loc));
+    const o = m.get(k) || { nombre: nombreLoc(e.loc), prov: e.prov, lat: 0, lon: 0, n: 0 };
+    o.lat += e.lat; o.lon += e.lon; o.n++; m.set(k, o);
+    const c = cps.get(e.cp) || { lat: 0, lon: 0, n: 0, nombre: nombreLoc(e.loc), prov: e.prov };
+    c.lat += e.lat; c.lon += e.lon; c.n++; cps.set(e.cp, c);
+  }
+  idxLoc = { n: S.est.length, m, cps };
+  return idxLoc;
+}
+function buscarLocal(q) {
+  const n = norm(q).replace(/[,.]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (n.length < 2) return [];
+  const { m, cps } = indiceLocalidades();
+  const out = [];
+  const prov = (o) => titulo(S.provs[o.prov] || '');
+  if (/^\d{2,5}$/.test(n)) {
+    for (const [cp, o] of cps) if (cp.startsWith(n)) out.push({ nombre: `${cp} · ${o.nombre}`, sub: prov(o), lat: o.lat / o.n, lon: o.lon / o.n, prov: o.prov, txt: `${o.nombre} (${cp})` });
+    return out.slice(0, 6);
+  }
+  const exactos = [], empiezan = [], contienen = [];
+  for (const [k, o] of m) {
+    const r = { nombre: o.nombre, sub: prov(o), lat: o.lat / o.n, lon: o.lon / o.n, prov: o.prov, txt: o.nombre };
+    if (k === n) exactos.push(r);
+    else if (k.startsWith(n) || k.split(' ').some((w) => w.startsWith(n))) empiezan.push(r);
+    else if (k.includes(n)) contienen.push(r);
+  }
+  return [...exactos, ...empiezan.sort((a, b) => a.nombre.length - b.nombre.length), ...contienen].slice(0, 6);
+}
+const cacheGeo = new Map();
+async function buscarOSM(q) {
+  const t = q.trim();
+  if (t.length < 3) return [];
+  if (cacheGeo.has(t)) return cacheGeo.get(t);
+  const cp = /^\d{5}$/.test(t);
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&accept-language=es&' +
+    (cp ? `postalcode=${t}&country=es` : `countrycodes=es&q=${encodeURIComponent(t)}`);
+  try {
+    const r = await fetch(url, { headers: { Accept: 'application/json' } });
+    const j = await r.json();
+    const out = j.map((x) => {
+      const a = x.address || {};
+      const pueblo = a.city || a.town || a.village || a.hamlet || a.municipality || '';
+      const nombre = cp ? `${t} · ${pueblo || x.name}` : x.name || pueblo;
+      const sub = [pueblo && pueblo !== nombre ? pueblo : '', a.province || a.state || ''].filter(Boolean).join(', ');
+      return { nombre, sub, lat: +x.lat, lon: +x.lon, txt: cp ? `${pueblo || t} (${t})` : nombre, osm: true };
+    });
+    cacheGeo.set(t, out);
+    return out;
+  } catch { return []; }
+}
+// Autocompletado reutilizable (cabecera y modo ruta)
+function autocompletar(input, caja, alElegir, { gps = true } = {}) {
+  let tmr, ultimo = [];
+  const pinta = (lista, cargando) => {
+    const q = input.value.trim();
+    let h = '';
+    if (gps) h += `<button type="button" data-i="gps">📍 <b>Usar mi ubicación (GPS)</b></button>`;
+    h += lista.map((r, i) => `<button type="button" data-i="${i}">${r.osm ? '🗺️' : '⛽'} <b>${esc(r.nombre)}</b>${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</button>`).join('');
+    if (cargando) h += '<div class="sug-info">Buscando en el mapa…</div>';
+    else if (q.length >= 2 && !lista.length) h += '<div class="sug-info">No encuentro ese sitio. Prueba con otro nombre o con el código postal.</div>';
+    caja.innerHTML = h; caja.classList.toggle('on', !!h);
+    ultimo = lista;
+  };
+  const buscar = async () => {
+    const q = input.value.trim();
+    const loc = buscarLocal(q);
+    if (q.length < 3) return pinta(loc);
+    pinta(loc, true);
+    const osm = await buscarOSM(q);
+    if (input.value.trim() !== q) return;
+    const vistos = new Set(loc.map((r) => norm(r.nombre)));
+    pinta([...loc, ...osm.filter((r) => !vistos.has(norm(r.nombre)))].slice(0, 8));
+  };
+  input.addEventListener('input', () => { clearTimeout(tmr); tmr = setTimeout(buscar, 350); pinta(buscarLocal(input.value)); });
+  input.addEventListener('focus', () => pinta(buscarLocal(input.value)));
+  input.addEventListener('blur', () => setTimeout(() => caja.classList.remove('on'), 250));
+  caja.addEventListener('pointerdown', (e) => e.preventDefault()); // que no se pierda el foco al tocar
+  caja.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const r = b.dataset.i === 'gps' ? { gps: true } : ultimo[+b.dataset.i];
+    caja.classList.remove('on'); input.blur();
+    alElegir(r);
+  });
+  return {
+    async elegirPrimero() {
+      const q = input.value.trim();
+      if (!q) return;
+      let r = buscarLocal(q);
+      if (!r.length || norm(r[0].nombre) !== norm(q)) { const o = await buscarOSM(q); r = [...r, ...o]; }
+      if (!r.length) { toast('No encuentro ese sitio. Prueba con otro nombre o con el código postal.'); return; }
+      caja.classList.remove('on'); input.blur();
+      alElegir(r[0]);
+    },
+  };
+}
+function irALugar(r) {
+  if (r.gps) { S.pos = null; localizar(); $('#q').value = ''; return; }
+  fijarPos({ lat: r.lat, lon: r.lon, gps: false, txt: r.txt || r.nombre, prov: r.prov });
   save('pos', S.pos);
   $('#q').value = '';
-  $('#q').blur();
+  toast('Mostrando ' + (r.txt || r.nombre));
 }
 
 // ---------------------------------------------------------------- Filtrado
@@ -414,6 +522,7 @@ function render() {
   if (v === 'lista') S.cfg.modo === 'ev' ? renderListaEv() : renderLista();
   if (v === 'mapa') renderMapa();
   if (v === 'favs') renderFavs();
+  if (v === 'ruta') renderRuta();
   if (v === 'tend') renderTend();
   if (v === 'ajustes') renderAjustes();
 }
@@ -486,7 +595,7 @@ function tarjeta(e, cortes, ahora = new Date()) {
   return `<div class="card" data-est="${e.id}">
     <div class="nm">${S.favs.has(e.id) ? '<span class="star">★</span>' : ''}<span class="t">${esc(nombreMarca(marca(e.rot)) === 'Sin marca' ? titulo(e.rot) || 'Gasolinera' : nombreMarca(marca(e.rot)))}</span></div>
     <div class="big"><span class="price ${claseP(e.precio, cortes)}">${pr(e.precio)}<small> €</small></span><span class="lbl">${FUEL_SHORT[S.cfg.fuel]}</span></div>
-    <div class="sub">${esc(titulo(e.dir))}, ${esc(titulo(e.loc))}</div>
+    <div class="sub">${esc(titulo(e.dir))}, ${esc(nombreLoc(e.loc))}</div>
     <div class="row2">${extras.join('')}</div>
   </div>`;
 }
@@ -622,7 +731,8 @@ async function detalle(id) {
   const d = S.pos ? dist(S.pos.lat, S.pos.lon, e0.lat, e0.lon) : 0;
   const e = { ...e0, d, precio: e0.p[c.fuel] || 0 };
   // medias de la zona para comparar
-  const zona = S.pos ? S.est.filter((x) => dist(S.pos.lat, S.pos.lon, x.lat, x.lon) <= Math.max(c.radio, 5)) : [];
+  // gasolineras de alrededor de ESTA gasolinera (sirve también para las de la ruta)
+  const zona = S.est.filter((x) => dist(e0.lat, e0.lon, x.lat, x.lon) <= 5);
   const mediaZ = (f) => { const v = zona.map((x) => x.p[f]).filter(Boolean); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   const filas = Object.keys(FUEL_NAMES).filter((f) => e.p[f]).map((f) => {
     const m = mediaZ(f); const df = m ? (e.p[f] - m) / 10 : 0;
@@ -658,13 +768,14 @@ async function detalle(id) {
   }
   const fav = S.favs.has(e.id);
   abrirHoja(`<h2><span>${esc(nombreMarca(marca(e.rot)) === 'Sin marca' ? titulo(e.rot) : nombreMarca(marca(e.rot)))}</span><button class="favbtn ${fav ? 'on' : ''}" data-fav="${e.id}" aria-label="Favorita">${fav ? '★' : '☆'}</button></h2>
-    <p class="addr">${esc(titulo(e.dir))}, ${esc(titulo(e.loc))} · ${km(d)}<br>
+    <p class="addr">${esc(titulo(e.dir))}, ${esc(nombreLoc(e.loc))} · ${km(d)}<br>
     ${ab === true ? '<span class="down">● Abierta ahora</span>' : ab === false ? '<span class="up">● Cerrada ahora</span>' : ''} <span class="muted">${esc(e.hor)}</span>
     ${esLowcost(e) ? ' · <span class="tag lc">Low cost</span>' : ''}</p>
+    ${bloqueRuta(e.id)}
     ${navLinks(e.lat, e.lon)}
     <button class="btn alt share" data-share="est" data-id="${e.id}">📤 Compartir</button>
     <table class="ptable">${filas}</table>
-    <div class="muted">Comparado con la media de la zona (${zona.length} gasolineras). Precios del ${esc(S.fecha)}.</div>
+    <div class="muted">Comparado con la media de las ${zona.length} gasolineras a menos de 5 km de esta. Precios del ${esc(S.fecha)}.</div>
     ${calc}
     <div class="box" id="histBox"><h3>📈 Evolución de precios</h3><div class="muted">Cargando…</div></div>`);
   const h = await histProv(e.prov);
@@ -701,6 +812,7 @@ function detalleEv(id) {
   const sk = pt.sk.length ? pt.sk.map((s) => `<tr><td>${SOCKET_NAMES[s[0]]}${pt.compat.includes(s) ? ' ✅' : ''}</td><td>${s[2] ? s[2] + ' kW' : '—'}</td><td>${s[1]} toma${s[1] > 1 ? 's' : ''}</td></tr>`).join('') : '<tr><td colspan="3" class="muted">OpenStreetMap no indica los conectores de este punto.</td></tr>';
   abrirHoja(`<h2><span>${esc(pt.name || pt.op || 'Punto de recarga')}</span><button class="favbtn ${fav ? 'on' : ''}" data-favev="${id}" aria-label="Favorito">${fav ? '★' : '☆'}</button></h2>
     <p class="addr">${esc(pt.op)}${pt.op ? ' · ' : ''}${km(d)}${pt.fee === 0 ? ' · <b class="down">Gratis</b>' : pt.fee === 1 ? ' · De pago' : ''}${pt.hor ? '<br><span class="muted">Horario: ' + esc(pt.hor === '24/7' ? '24 horas' : pt.hor) + '</span>' : ''}</p>
+    ${bloqueRuta(id)}
     ${navLinks(pt.lat, pt.lon)}
     <button class="btn alt share" data-share="ev" data-id="${id}">📤 Compartir</button>
     <table class="ptable">${sk}</table>
@@ -927,7 +1039,7 @@ document.addEventListener('click', (ev) => {
   if (t.dataset.share === 'est') {
     const e = S.est.find((x) => x.id == t.dataset.id);
     const precios = ['g95', 'dsl'].filter((f) => e.p[f]).map((f) => `${FUEL_NAMES[f]}: ${pr(e.p[f])} €`).join(' · ');
-    compartir(nombreMarca(marca(e.rot)), `⛽ ${nombreMarca(marca(e.rot))} – ${titulo(e.dir)}, ${titulo(e.loc)}\n${precios}`, e.lat, e.lon);
+    compartir(nombreMarca(marca(e.rot)), `⛽ ${nombreMarca(marca(e.rot))} – ${titulo(e.dir)}, ${nombreLoc(e.loc)}\n${precios}`, e.lat, e.lon);
     return;
   }
   if (t.dataset.share === 'ev') {
@@ -947,6 +1059,10 @@ document.addEventListener('click', (ev) => {
     case 'buscarAct': comprobarVersion(true); break;
     case 'cerrarHoja': cerrarHoja(); break;
     case 'mas': S.limite += 60; render(); break;
+    case 'rutaCalc': calcularRuta(); break;
+    case 'rutaQuitar': S.ruta = null; save('ruta', null); renderRuta(); break;
+    case 'rutaCambiar': S.rutaEditar = true; renderRuta(); break;
+    case 'rutaInvertir': if (S.ruta) { const o = S.ruta.o; S.rutaO = S.ruta.d; S.rutaD = o; S.rutaEditar = true; renderRuta(); } break;
     case 'chipMarcas': hojaMarcas(); break;
     case 'chipConect': c.vista = 'ajustes'; saveCfg(); render(); setTimeout(() => $('[data-conect]')?.scrollIntoView({ block: 'center' }), 50); break;
     case 'okMarcas': c.marcas = [...document.querySelectorAll('[data-marca].on')].map((b) => b.dataset.marca); saveCfg(); cerrarHoja(); render(); break;
@@ -971,7 +1087,8 @@ document.addEventListener('change', (ev) => {
   if (t.dataset.cfg) render();
   else toast('Guardado');
 });
-$('#buscar').addEventListener('submit', (ev) => { ev.preventDefault(); buscarLugar($('#q').value); });
+const acCab = autocompletar($('#q'), $('#sug'), irALugar);
+$('#buscar').addEventListener('submit', (ev) => { ev.preventDefault(); acCab.elegirPrimero(); });
 $('#sheetBg').addEventListener('click', cerrarHoja);
 // cerrar la hoja deslizando hacia abajo
 (() => {
@@ -1040,6 +1157,7 @@ const tour = (() => {
     { sel: '[data-tog=lowcost]', t: '💰 Filtros rápidos', x: '<b>Low cost</b> muestra solo las marcas baratas, <b>Abiertas</b> quita las cerradas ahora mismo y <b>Marcas</b> te deja elegir las tuyas. Desliza la fila hacia la izquierda para verlos todos.' },
     { sel: '#banner .banner', t: '⭐ La mejor opción', x: 'Aquí te digo cuál te conviene más y cuánto ahorras frente a la gasolinera más cercana, contando el desplazamiento.' },
     { sel: '#lista .card', t: '🏷️ Cada gasolinera', x: 'El precio sale en <b style="color:var(--ok)">verde</b> si es barato, en <b style="color:var(--mid)">ámbar</b> si es normal y en <b style="color:var(--bad)">rojo</b> si es caro. <b>▼▲</b> indica si ha bajado o subido desde ayer.<br><br><b>Tócala</b> para ver todos los precios, ir con Google Maps o Waze, guardarla en ★ favoritas, compartirla o usar la calculadora.' },
+    { sel: '.bottom [data-v=ruta]', t: '🛣️ Ruta', x: '¿Te vas de viaje? Dime adónde vas y te enseño las gasolineras o cargadores <b>de camino</b>, con los minutos de desvío y a qué hora pasas por cada una.' },
     { sel: '.bottom [data-v=mapa]', t: '🗺️ Mapa', x: 'Todas las gasolineras con su precio sobre el mapa. Toca una etiqueta para ver los detalles.' },
     { sel: '.bottom [data-v=favs]', t: '★ Favoritas', x: 'Las gasolineras y cargadores que guardes, con su precio actual, estés donde estés.' },
     { sel: '.bottom [data-v=tend]', t: '📈 Tendencia', x: 'Cómo evolucionan los precios en tu provincia, si es <b>buen momento para repostar</b> y cuánto te cuesta cada coche por 100 km.' },
@@ -1115,3 +1233,237 @@ const tour = (() => {
   return { iniciar };
 })();
 if (!load('tourVisto', false)) setTimeout(() => { if (!$('#sheet').classList.contains('on')) tour.iniciar(); }, 1500);
+
+// ---------------------------------------------------------------- Modo ruta
+// Calcula la ruta con OSRM (OpenStreetMap) y busca gasolineras/cargadores a poca distancia del trazado.
+S.ruta = load('ruta', null);
+const VEL_DESVIO = 40; // km/h al salir de la carretera para repostar
+const desvioMin = (perp) => (perp < 0.05 ? 0.5 : 1 + ((2 * perp * RUTA) / VEL_DESVIO) * 60);
+function proyector(lat0) {
+  const kx = 111.32 * Math.cos((lat0 * Math.PI) / 180), ky = 110.574;
+  return (lat, lon) => [lon * kx, lat * ky];
+}
+function prepararRuta(coords, o, d, durS, distM) {
+  // coords: [[lon, lat], ...] -> puntos cada ~250 m con km acumulado
+  const P = proyector(coords[0][1]);
+  const pts = [];
+  let acc = 0, prev = null;
+  coords.forEach(([lon, lat], i) => {
+    const xy = P(lat, lon);
+    if (prev) {
+      const dd = Math.hypot(xy[0] - prev[0], xy[1] - prev[1]);
+      if (dd < 0.25 && i < coords.length - 1) return;
+      acc += dd;
+    }
+    pts.push([+lat.toFixed(5), +lon.toFixed(5), +acc.toFixed(3)]);
+    prev = xy;
+  });
+  const f = distM / 1000 / (acc || 1); // corrige a la distancia real de la ruta
+  pts.forEach((p) => (p[2] = +(p[2] * f).toFixed(3)));
+  return { o, d, pts, km: distM / 1000, min: durS / 60, creada: Date.now() };
+}
+function proyectarEnRuta(ruta, lat, lon) {
+  // distancia mínima al trazado (km), km de la ruta en ese punto y lado (izq/der)
+  const P = proyector(ruta.pts[0][0]);
+  const [px, py] = P(lat, lon);
+  let best = { perp: 1e9, along: 0, lado: 0 };
+  for (let i = 1; i < ruta.pts.length; i++) {
+    const a = ruta.pts[i - 1], b = ruta.pts[i];
+    const [ax, ay] = P(a[0], a[1]), [bx, by] = P(b[0], b[1]);
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-9;
+    let t = ((px - ax) * dx + (py - ay) * dy) / L2;
+    t = Math.max(0, Math.min(1, t));
+    const qx = ax + t * dx, qy = ay + t * dy;
+    const dd = Math.hypot(px - qx, py - qy);
+    if (dd < best.perp) best = { perp: dd, along: a[2] + t * (b[2] - a[2]), lado: Math.sign(dx * (py - ay) - dy * (px - ax)) };
+  }
+  return best;
+}
+function cajaRuta(ruta, margen) {
+  let a = 90, b = -90, c = 180, d = -180;
+  for (const p of ruta.pts) { a = Math.min(a, p[0]); b = Math.max(b, p[0]); c = Math.min(c, p[1]); d = Math.max(d, p[1]); }
+  const mlat = margen / 110.574, mlon = margen / (111.32 * Math.cos((((a + b) / 2) * Math.PI) / 180));
+  return [a - mlat, b + mlat, c - mlon, d + mlon];
+}
+function progresoEnRuta() {
+  // si vas por la ruta, en qué km estás (para ocultar lo que ya has pasado)
+  if (!S.ruta || !S.pos?.gps) return 0;
+  const p = proyectarEnRuta(S.ruta, S.pos.lat, S.pos.lon);
+  return p.perp < 2 ? p.along : 0;
+}
+function resultadosRuta() {
+  const r = S.ruta, c = S.cfg;
+  if (!r) return [];
+  const maxPerp = Math.max(0.1, ((c.rutaDesvio - 1) * VEL_DESVIO) / 60 / (2 * RUTA));
+  const [la1, la2, lo1, lo2] = cajaRuta(r, maxPerp + 0.2);
+  const desde = progresoEnRuta();
+  const hasta = c.rutaKm ? desde + c.rutaKm : Infinity;
+  const ev = c.modo === 'ev';
+  const out = [];
+  const fuente = ev ? (S.pts || []).map((p) => ({ lat: p[0], lon: p[1], p })) : S.est.filter((e) => e.p[c.fuel]).map((e) => ({ lat: e.lat, lon: e.lon, e }));
+  for (const x of fuente) {
+    if (x.lat < la1 || x.lat > la2 || x.lon < lo1 || x.lon > lo2) continue;
+    const pr_ = proyectarEnRuta(r, x.lat, x.lon);
+    if (pr_.perp > maxPerp || pr_.along < desde - 0.3 || pr_.along > hasta) continue;
+    const dm = desvioMin(pr_.perp);
+    if (dm > c.rutaDesvio) continue;
+    const eta = new Date(Date.now() + ((pr_.along - desde) / r.km) * r.min * 60000);
+    const base = { perp: pr_.perp, along: pr_.along, kmFalta: pr_.along - desde, desvio: dm, lado: pr_.lado, eta };
+    if (ev) {
+      const p = x.p, sk = p[4];
+      const compat = sk.filter((s) => c.conectores.includes(s[0]));
+      if (sk.length && !compat.length) continue;
+      if (!sk.length && !c.sinDatos) continue;
+      const kwMax = compat.length ? Math.max(...compat.map((s) => s[2])) : p[5];
+      if (c.potMin && !(kwMax >= c.potMin)) continue;
+      if (c.gratis && p[6] !== 0) continue;
+      const pt = { lat: p[0], lon: p[1], name: p[2], op: p[3], sk, compat, kw: kwMax, fee: p[6], hor: p[7], cap: p[8], id: p[9], osm: p[10] ?? null, d: 0, ...base };
+      pt.carga = tiempoCarga(pt);
+      if (!pt.carga) continue;
+      // en viaje esperas mientras carga: el tiempo de carga cuenta entero
+      pt.total = pt.carga.coste + (dm / 60) * c.valorHora + pt.carga.h * c.valorHora;
+      out.push(pt);
+    } else {
+      const e = { ...x.e, d: 0, precio: x.e.p[c.fuel], ...base };
+      if (c.abiertas && horarioHoy(e.hor, eta) === false) continue;
+      if (c.lowcost && !esLowcost(e)) continue;
+      if (c.marcas.length && !c.marcas.includes(marca(e.rot))) continue;
+      const pl = e.precio / 1000;
+      const llenar = pl * c.litros, extra = ((2 * e.perp * RUTA * c.consumo) / 100) * pl, tiempo = (dm / 60) * c.valorHora;
+      e.total = { llenar, viaje: extra, tiempo, dinero: llenar + extra, total: llenar + extra + tiempo };
+      out.push(e);
+    }
+  }
+  const ord = {
+    total: (a, b) => (ev ? a.total - b.total : a.total.total - b.total.total),
+    km: (a, b) => a.along - b.along,
+    precio: (a, b) => (ev ? a.carga.precio - b.carga.precio : a.precio - b.precio) || a.along - b.along,
+  };
+  out.sort(ord[c.rutaOrden] || ord.total);
+  S.rutaRes = out;
+  return out;
+}
+async function calcularRuta() {
+  const o = S.rutaO || (S.pos ? { lat: S.pos.lat, lon: S.pos.lon, nombre: S.pos.gps ? 'Mi ubicación' : S.pos.txt } : null);
+  const d = S.rutaD;
+  if (!o) { toast('Necesito saber desde dónde sales: activa la ubicación o escribe el origen'); return; }
+  if (!d) { toast('Escribe adónde vas y elige una opción de la lista'); $('#rutaDest')?.focus(); return; }
+  const btn = $('#rutaCalc'); if (btn) { btn.disabled = true; btn.textContent = 'Calculando ruta…'; }
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${o.lon},${o.lat};${d.lon},${d.lat}?overview=full&geometries=geojson`;
+    const r = await fetch(url);
+    const j = await r.json();
+    if (j.code !== 'Ok' || !j.routes?.length) throw new Error(j.message || 'sin ruta');
+    const rt = j.routes[0];
+    S.ruta = prepararRuta(rt.geometry.coordinates, o, d, rt.duration, rt.distance);
+    save('ruta', S.ruta);
+    S.rutaEditar = false; S.rutaO = null; S.rutaD = null;
+    if (S.cfg.modo === 'ev' && !S.pts) await cargadores();
+  } catch (e) {
+    toast('No se pudo calcular la ruta. Comprueba la conexión e inténtalo de nuevo.');
+  }
+  renderRuta();
+}
+function bloqueRuta(id) {
+  const r = (S.rutaRes || []).find((x) => String(x.id) === String(id));
+  if (!S.ruta || !r) return '';
+  const o = S.ruta.o, d = S.ruta.d;
+  const desde = S.pos?.gps ? `${S.pos.lat},${S.pos.lon}` : `${o.lat},${o.lon}`;
+  return `<div class="box"><h3>🛣️ En tu ruta a ${esc(d.nombre)}</h3>
+    <div class="kv"><span>Está en el km</span><span>${Math.round(r.along)} (${km(r.kmFalta)} desde aquí)</span></div>
+    <div class="kv"><span>Desvío</span><span>${r.perp < 0.05 ? 'en la misma carretera' : '≈ ' + minTxt(r.desvio)}</span></div>
+    <div class="kv"><span>Llegarías sobre las</span><span>${r.eta.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</span></div>
+    ${ladoTxt(r) ? `<div class="muted" style="margin-top:4px">${ladoTxt(r)}</div>` : ''}
+    <div class="navs" style="grid-template-columns:1fr;margin:10px 0 0"><a href="https://www.google.com/maps/dir/?api=1&origin=${desde}&destination=${d.lat},${d.lon}&waypoints=${r.lat},${r.lon}&travelmode=driving" target="_blank" rel="noopener">🧭 Ir a ${esc(d.nombre)} parando aquí (Google Maps)</a></div></div>`;
+}
+const ladoTxt = (r) => (r.perp < 0.25 && r.lado > 0 ? '⚠️ Queda a tu izquierda: si es una autovía, puede estar en el sentido contrario.' : r.perp < 0.25 && r.lado < 0 ? '➡️ Queda a tu derecha, en tu sentido de la marcha.' : '');
+function tarjetaRuta(x, cortes) {
+  const ev = S.cfg.modo === 'ev';
+  const hora = x.eta.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  const tags = [`<span class="tag">km <b>${Math.round(x.along)}</b> · ${hora}</span>`,
+    `<span class="tag ${x.desvio <= 2 ? 'lc' : ''}">${x.perp < 0.05 ? 'En la carretera' : 'Desvío ' + minTxt(x.desvio)}</span>`];
+  if (x.perp < 0.25 && x.lado > 0) tags.push('<span class="tag cl">↔ ¿sentido contrario?</span>');
+  if (ev) {
+    const t = x.carga;
+    tags.push(`<span class="tag">${t.precio === 0 ? 'Gratis' : (t.fuente.startsWith('estimado') ? '~' : '') + t.precio.toLocaleString('es-ES', { minimumFractionDigits: 2 }) + ' €/kWh'}</span><span class="tag">10→80 % <b>${durTxt(t.h)}</b></span>`);
+    return `<div class="card" data-ev="${x.id}"><div class="nm"><span class="t">${esc(x.name || x.op || 'Punto de recarga')}</span></div>
+      <div class="big"><span class="price ${x.kw >= 50 ? 'p-ok' : x.kw >= 22 ? 'p-mid' : ''}">${x.kw || '?'}<small> kW</small></span><span class="lbl">${esc(x.op && x.name ? x.op : '')}</span></div>
+      <div class="sub">${km(x.kmFalta)} por delante</div><div class="row2">${tags.join('')}</div></div>`;
+  }
+  if (esLowcost(x)) tags.push('<span class="tag lc">Low cost</span>');
+  if (horarioHoy(x.hor, x.eta) === false) tags.push('<span class="tag cl">Cerrada a esa hora</span>');
+  return `<div class="card" data-est="${x.id}"><div class="nm">${S.favs.has(x.id) ? '<span class="star">★</span>' : ''}<span class="t">${esc(nombreMarca(marca(x.rot)) === 'Sin marca' ? titulo(x.rot) : nombreMarca(marca(x.rot)))}</span></div>
+    <div class="big"><span class="price ${claseP(x.precio, cortes)}">${pr(x.precio)}<small> €</small></span><span class="lbl">${FUEL_SHORT[S.cfg.fuel]}</span></div>
+    <div class="sub">${esc(nombreLoc(x.loc))} · ${km(x.kmFalta)} por delante</div><div class="row2">${tags.join('')}</div></div>`;
+}
+let mapaR, capaR;
+function renderRuta() {
+  const el = $('#ruta'), c = S.cfg;
+  const ev = c.modo === 'ev';
+  if (!S.ruta || S.rutaEditar) {
+    const o = S.rutaO || (S.ruta && S.rutaEditar && S.ruta.o.nombre !== 'Mi ubicación' ? S.ruta.o : null);
+    const d = S.rutaD || (S.ruta && S.rutaEditar ? S.ruta.d : null);
+    S.rutaO = o; S.rutaD = d;
+    el.innerHTML = `<div class="rform">
+      <h2>🛣️ ¿Adónde vas?</h2>
+      <p class="muted">Te enseño ${ev ? 'los cargadores' : 'las gasolineras'} de camino, sin que tengas que desviarte mucho.</p>
+      <label>Desde</label>
+      <div class="acw"><input id="rutaOrig" type="search" placeholder="Mi ubicación" value="${esc(o?.nombre && o.nombre !== 'Mi ubicación' ? o.nombre : '')}" autocomplete="off" enterkeyhint="next"><div id="sugO" class="sug"></div></div>
+      <label>Hasta</label>
+      <div class="acw"><input id="rutaDest" type="search" placeholder="Ciudad, pueblo, dirección o CP" value="${esc(d?.nombre || '')}" autocomplete="off" enterkeyhint="go"><div id="sugD" class="sug"></div></div>
+      <div class="rgrid">
+        <div><label>Desvío máximo</label><select data-cfg="rutaDesvio">${[2, 5, 10, 15].map((n) => `<option value="${n}" ${n == c.rutaDesvio ? 'selected' : ''}>${n} min</option>`).join('')}</select></div>
+        <div><label>Parar en los próximos</label><select data-cfg="rutaKm">${[[0, 'todo el viaje'], [50, '50 km'], [100, '100 km'], [150, '150 km'], [200, '200 km'], [300, '300 km']].map(([v, t]) => `<option value="${v}" ${v == c.rutaKm ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      </div>
+      <button class="btn" id="rutaCalc" style="width:100%;margin-top:12px">Buscar ${ev ? 'cargadores' : 'gasolineras'} en la ruta</button>
+      ${S.ruta ? '<button class="btn alt" id="rutaQuitar" style="width:100%;margin-top:8px">Borrar la ruta</button>' : ''}
+      <p class="muted" style="margin-top:10px">Ruta calculada con OpenStreetMap (OSRM). Se tiene en cuenta ${ev ? 'tu coche, los conectores y la potencia de los filtros' : 'el combustible y los filtros de arriba'}.</p></div>`;
+    autocompletar($('#rutaOrig'), $('#sugO'), (r) => { S.rutaO = r.gps ? null : { lat: r.lat, lon: r.lon, nombre: r.txt || r.nombre }; $('#rutaOrig').value = r.gps ? '' : r.txt || r.nombre; });
+    const acD = autocompletar($('#rutaDest'), $('#sugD'), (r) => { if (r.gps) return; S.rutaD = { lat: r.lat, lon: r.lon, nombre: r.txt || r.nombre }; $('#rutaDest').value = S.rutaD.nombre; }, { gps: false });
+    $('#rutaDest').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); acD.elegirPrimero(); } });
+    $('#rutaDest').addEventListener('input', () => (S.rutaD = null));
+    $('#rutaOrig').addEventListener('input', () => (S.rutaO = null));
+    return;
+  }
+  if (ev && !S.pts) { el.innerHTML = '<div class="empty"><b>Cargando puntos de recarga…</b></div>'; cargadores(); return; } // cargadores() vuelve a pintar al terminar
+  const r = S.ruta;
+  const res = resultadosRuta();
+  const hh = Math.floor(r.min / 60), mm = Math.round(r.min % 60);
+  let h = `<div class="rsum"><div><b>${esc(r.o.nombre)} → ${esc(r.d.nombre)}</b><small>${Math.round(r.km)} km · ${hh ? hh + ' h ' : ''}${mm} min${progresoEnRuta() > 1 ? ` · llevas ${Math.round(progresoEnRuta())} km` : ''}</small></div>
+    <button class="btn alt" id="rutaCambiar">Cambiar</button></div>
+    <div id="mapaRuta"></div>
+    <div class="chips rchips">
+      ${chipSel('rutaOrden', '', c.rutaOrden, [['total', 'Lo que más compensa'], ['km', 'En orden de paso'], ['precio', 'Más barata']])}
+      ${chipSel('rutaDesvio', 'Desvío ≤ ', c.rutaDesvio, [2, 5, 10, 15].map((n) => [n, n + ' min']))}
+      ${chipSel('rutaKm', 'Parar en ', c.rutaKm, [[0, 'todo el viaje'], [50, '50 km'], [100, '100 km'], [150, '150 km'], [200, '200 km'], [300, '300 km']])}
+    </div>`;
+  if (!res.length) h += `<div class="empty"><b>No hay ${ev ? 'cargadores' : 'gasolineras'} con estos filtros</b>Prueba a permitir más minutos de desvío o a quitar filtros.</div>`;
+  else {
+    const mejor = [...res].sort((a, b) => (ev ? a.total - b.total : a.total.total - b.total.total))[0];
+    if (ev) h += `<div class="banner"><b>Te compensa: ${esc(mejor.name || mejor.op || 'Punto de recarga')}</b> en el km ${Math.round(mejor.along)}<small>${mejor.kw ? mejor.kw + ' kW · ' : ''}10→80 % en ${durTxt(mejor.carga.h)} · desvío ${minTxt(mejor.desvio)} · llegas sobre las ${mejor.eta.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} <button data-ev="${mejor.id}">Ver</button></small></div>`;
+    else {
+      const media = res.reduce((a, x) => a + x.precio, 0) / res.length;
+      const ahorro = ((media - mejor.precio) / 1000) * c.litros;
+      h += `<div class="banner"><b>Te compensa: ${esc(nombreMarca(marca(mejor.rot)))} en el km ${Math.round(mejor.along)}</b> · ${pr(mejor.precio)} €/L<small>Desvío ${mejor.perp < 0.05 ? 'nulo' : minTxt(mejor.desvio)} · llegas sobre las ${mejor.eta.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}${ahorro > 0.3 ? ` · ${eur(ahorro)} menos que la media de la ruta llenando ${c.litros} L` : ''} <button data-est="${mejor.id}">Ver</button></small><small>${res.length} ${ev ? 'cargadores' : 'gasolineras'} a ≤ ${c.rutaDesvio} min de desvío</small></div>`;
+    }
+    const cortes = ev ? null : cortesDe(res);
+    h += '<div class="lista" style="padding:8px 0">' + res.slice(0, S.limite).map((x) => tarjetaRuta(x, cortes)).join('') + '</div>';
+    if (res.length > S.limite) h += `<button class="more" id="mas">Ver más (${res.length - S.limite})</button>`;
+  }
+  el.innerHTML = h;
+  // mapa de la ruta
+  if (mapaR) { mapaR.remove(); mapaR = null; }
+  mapaR = L.map('mapaRuta', { zoomControl: false, attributionControl: true });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(mapaR);
+  const linea = L.polyline(r.pts.map((p) => [p[0], p[1]]), { color: ev ? '#2563eb' : '#0f766e', weight: 5, opacity: 0.8 }).addTo(mapaR);
+  capaR = L.layerGroup().addTo(mapaR);
+  const cortes = ev ? null : cortesDe(res);
+  // solo las mejores en el mapa para que se lea bien
+  for (const x of res.slice(0, 25)) {
+    const html = ev ? `<div class="pin ev">⚡${x.kw || ''}</div>` : `<div class="pin ${claseP(x.precio, cortes)}">${pr(x.precio)}</div>`;
+    L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html, iconSize: [0, 0] }) }).on('click', () => (ev ? detalleEv(x.id) : detalle(x.id))).addTo(capaR);
+  }
+  L.marker([r.d.lat, r.d.lon], { icon: L.divIcon({ className: '', html: '<div class="pin">🏁</div>', iconSize: [0, 0] }) }).addTo(capaR);
+  if (S.pos) L.marker([S.pos.lat, S.pos.lon], { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }) }).addTo(capaR);
+  setTimeout(() => { mapaR.invalidateSize(); mapaR.fitBounds(linea.getBounds(), { padding: [16, 16] }); }, 30);
+}

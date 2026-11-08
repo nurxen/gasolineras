@@ -9,6 +9,8 @@ Sin servidores de pago ni anuncios: todo se aloja gratis en **GitHub Pages**, y 
 - **Filtros**: distancia (1–50 km), combustible, **low cost**, **abiertas ahora** y **marcas**.
 - **Orden**: más barata, más cercana o **coste real** (precio del depósito + el combustible que gastas en ir y volver).
 - **Mejor opción** destacada arriba: cuánto ahorras frente a la más cercana.
+- **Modo Ruta 🛣️**: indica adónde vas y te muestra las gasolineras o cargadores **de camino**, con los minutos de desvío, el kilómetro donde están y la hora a la que pasas. Puedes abrir Google Maps con la parada ya añadida (ruta calculada con OSRM / OpenStreetMap).
+- **Buscador** de pueblos, direcciones y códigos postales de toda España (Nominatim / OpenStreetMap).
 - **Mapa** con los precios en colores (verde barata, ámbar media, rojo cara).
 - **Favoritas** (gasolineras y cargadores) y **navegación** con Google Maps, Waze o Apple Maps.
 - **Historial**: gráfica de 90 días por gasolinera, media de tu provincia, aviso de si es buen momento para repostar y el día de la semana más barato.
