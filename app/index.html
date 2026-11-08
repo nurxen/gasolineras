@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>GasoCerca</title>
+  <meta name="description" content="Gasolineras y puntos de recarga cerca de ti, con precios oficiales actualizados." />
+  <meta name="theme-color" content="#0f766e" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="GasoCerca" />
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="top-row">
+      <div class="brand"><img src="icons/icon-192.png" alt="" /> <span>GasoCerca</span></div>
+      <div class="seg" role="tablist" aria-label="Modo">
+        <button role="tab" data-modo="fuel" class="on">⛽ Combustible</button>
+        <button role="tab" data-modo="ev">⚡ Recarga</button>
+      </div>
+    </div>
+    <div class="loc-row">
+      <button id="btnLoc" class="loc" title="Usar mi ubicación">
+        <span class="dot"></span><span id="locTxt">Buscando tu ubicación…</span>
+      </button>
+      <form id="buscar" class="search" autocomplete="off">
+        <input id="q" type="search" placeholder="Pueblo o código postal" enterkeyhint="search" />
+      </form>
+    </div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <main>
+    <section id="v-lista" class="view on">
+      <div id="banner"></div>
+      <div id="lista" class="lista"></div>
+    </section>
+    <section id="v-mapa" class="view"><div id="map"></div></section>
+    <section id="v-favs" class="view"><div id="favs" class="lista"></div></section>
+    <section id="v-tend" class="view"><div id="tend" class="pad"></div></section>
+    <section id="v-ajustes" class="view"><div id="ajustes" class="pad"></div></section>
+  </main>
+
+  <nav class="bottom">
+    <button data-v="lista" class="on"><i>☰</i>Cerca</button>
+    <button data-v="mapa"><i>🗺️</i>Mapa</button>
+    <button data-v="favs"><i>★</i>Favoritas</button>
+    <button data-v="tend"><i>📈</i>Tendencia</button>
+    <button data-v="ajustes"><i>⚙️</i>Ajustes</button>
+  </nav>
+
+  <div id="sheetBg" class="sheet-bg"></div>
+  <div id="sheet" class="sheet" role="dialog" aria-modal="true"><div class="grip"></div><button id="cerrarHoja" class="cerrar" aria-label="Cerrar">✕</button><div id="sheetBody"></div></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="vendor/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

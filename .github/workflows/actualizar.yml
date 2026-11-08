@@ -1,0 +1,69 @@
+name: Actualizar precios y publicar
+
+on:
+  schedule:
+    - cron: '7,37 * * * *' # cada 30 minutos aprox.
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recuperar historial (rama data)
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: data
+          path: .datos
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Descargar precios oficiales (MITECO)
+        run: node scripts/build-data.mjs --out app/data --hist .datos
+
+      - name: Puntos de recarga (OpenStreetMap, 1 vez al día)
+        run: node scripts/build-chargers.mjs --out app/data --hist .datos
+
+      - name: Guardar historial en la rama data (sin crecer el repositorio)
+        run: |
+          cd .datos
+          rm -rf .git
+          git init -q
+          git checkout -q -b data
+          git add -A
+          git -c user.name="github-actions" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Datos $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+
+      - name: Versión de la caché offline
+        run: sed -i "s/__VERSION__/${GITHUB_SHA::8}/" app/sw.js
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
