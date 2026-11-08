@@ -20,9 +20,13 @@ const SERVIDORES = [
   'https://overpass.kumi.systems/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
 ];
+// Dos rectángulos (península + Baleares, y Canarias): más rápido que buscar por área
 const QUERY = `[out:json][timeout:300];
-area["ISO3166-1"="ES"][admin_level=2]->.es;
-nwr["amenity"="charging_station"](area.es);
+(
+  nwr["amenity"="charging_station"](35.8,-9.6,43.9,4.5);
+  nwr["amenity"="charging_station"](27.5,-18.4,29.5,-13.3);
+  nwr["amenity"="charging_station"](35.2,-5.5,35.95,-2.8);
+);
 out center tags;`;
 
 // tipo corto -> etiqueta OSM
@@ -44,6 +48,13 @@ const kw = (v) => {
   if (!m[2] && n > 1000) n /= 1000; // valores en W sin unidad
   return Math.round(n * 10) / 10;
 };
+
+// etiqueta charge de OSM, p. ej. "0.49 EUR/kWh" o "0,45 €/kWh"
+function precioOSM(t) {
+  const m = /([\d]+[.,]?\d*)\s*(?:€|eur)\s*\/\s*kwh/i.exec(t.charge || t['charge:conditional'] || '');
+  const v = m ? parseFloat(m[1].replace(',', '.')) : null;
+  return v > 0 && v < 3 ? v : null;
+}
 
 export function compactar(elements) {
   const out = [];
@@ -73,6 +84,7 @@ export function compactar(elements) {
       t.opening_hours || '',
       parseInt(t.capacity, 10) || 0,
       el.type[0] + el.id,
+      precioOSM(t),
     ]);
   }
   return out;

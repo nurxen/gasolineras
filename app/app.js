@@ -3,8 +3,15 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const NOVEDADES = {
+  '1.3.0': [
+    '⏱️ <b>Ahora cuenta tu tiempo</b>: la app calcula los minutos de ida y vuelta y los valora (10 €/h por defecto). Si ahorras 1 € pero tienes que conducir media hora, ya no te dirá que compensa.',
+    '🚗 Cada gasolinera muestra los <b>minutos que tardas</b> en llegar, y en el detalle ves si <b>compensa o no</b> frente a la más cercana.',
+    '⚡ <b>Precios de recarga rehechos</b>: los operadores no publican sus tarifas en abierto, así que la app usa <b>tu tarifa</b> si la indicas, el precio de OpenStreetMap cuando lo hay y, si no, una estimación según sea carga lenta, rápida o ultrarrápida (siempre marcada como «estimado»).',
+    '💾 Guarda <b>lo que pagas en cada operador</b> (Zunder, Iberdrola, Endesa…) desde el detalle del cargador y la app lo usará siempre.',
+    '🔌 Nuevo orden en Recarga: <b>más barata</b> y <b>lo que más compensa</b>.',
+  ],
   '1.2.0': [
     '🧭 <b>Tutorial</b> de bienvenida que te enseña dónde está cada cosa. Puedes repetirlo cuando quieras desde <b>Ajustes → Ver tutorial</b>.',
   ],
@@ -40,10 +47,13 @@ const LOWCOST_DEF = ['BALLENOIL', 'PLENERGY', 'PLENOIL', 'PETROPRIX', 'ESCLATOIL
 
 const DEF = {
   modo: 'fuel', vista: 'lista',
-  radio: 5, fuel: 'g95', orden: 'precio', lowcost: false, abiertas: false, marcas: [],
+  radio: 5, fuel: 'g95', orden: 'total',
+  lowcost: false, abiertas: false, marcas: [],
+  velMedia: 25, valorHora: 10, // para valorar el tiempo del desplazamiento
   litros: 40, consumo: 5, // híbrido
   evRadio: 10, conectores: ['ccs', 't2', 't2c'], potMin: 0, gratis: false, evOrden: 'dist', sinDatos: true,
-  evModelo: 'Leapmotor T03', bat: 37.3, acKw: 6.6, dcKw: 48, evConsumo: 13.5, kwhPrecio: 0.45, kwhCasa: 0.15,
+  evModelo: 'Leapmotor T03', bat: 37.3, acKw: 6.6, dcKw: 48, evConsumo: 13.5, kwhCasa: 0.15,
+  kwhAC: 0.39, kwhDC: 0.49, kwhHPC: 0.59, tarifas: {}, // €/kWh orientativos por tipo de cargador y tarifas propias
   lowcostList: LOWCOST_DEF,
 };
 
@@ -190,11 +200,12 @@ async function cargadores() {
     await cargadoresDirecto();
   }
   S.ptsCargando = false;
+  if (!S.pts && !S.pos) { S.ptsEsperaPos = true; return; } // se reintenta al tener ubicación
   render();
 }
 async function cargadoresDirecto() {
   if (!S.pos) return;
-  const rad = Math.min(50, Math.max(S.cfg.evRadio, 10)) * 1000;
+  const rad = Math.min(50, Math.max(S.cfg.evRadio, 15)) * 1000;
   const q = `[out:json][timeout:25];nwr["amenity"="charging_station"](around:${rad},${S.pos.lat},${S.pos.lon});out center tags;`;
   try {
     toast('Buscando puntos de recarga en OpenStreetMap…');
@@ -204,6 +215,12 @@ async function cargadoresDirecto() {
     S.ptsCentro = { ...S.pos, rad };
   } catch { S.pts = S.pts || []; toast('No se pudieron cargar los puntos de recarga'); }
 }
+function precioOSM(t) {
+  // etiqueta charge de OSM, p. ej. "0.49 EUR/kWh" o "0,45 €/kWh"
+  const m = /([\d]+[.,]?\d*)\s*(?:€|eur)\s*\/\s*kwh/i.exec(t.charge || t['charge:conditional'] || '');
+  const v = m ? parseFloat(m[1].replace(',', '.')) : null;
+  return v > 0 && v < 3 ? v : null;
+}
 function compactarOSM(elements) {
   const SK = { ccs: 'type2_combo', t2: 'type2', t2c: 'type2_cable', chademo: 'chademo', schuko: 'schuko', tesla: 'tesla_supercharger' };
   const kw = (v) => { const m = /([\d.,]+)\s*(kw|w)?/i.exec(String(v || '')); if (!m) return 0; let n = parseFloat(m[1].replace(',', '.')); if ((m[2] || '').toLowerCase() === 'w' || (!m[2] && n > 1000)) n /= 1000; return Math.round(n * 10) / 10; };
@@ -211,7 +228,7 @@ function compactarOSM(elements) {
     const t = el.tags || {};
     const s = Object.entries(SK).filter(([, o]) => t['socket:' + o] && !['no', '0'].includes(t['socket:' + o])).map(([k, o]) => [k, parseInt(t['socket:' + o], 10) || 1, kw(t[`socket:${o}:output`])]);
     return [el.lat ?? el.center?.lat, el.lon ?? el.center?.lon, t.name || '', t.operator || t.network || t.brand || '', s,
-      Math.max(0, ...s.map((x) => x[2]), kw(t['charging_station:output'])), t.fee === 'no' ? 0 : t.fee === 'yes' ? 1 : null, t.opening_hours || '', parseInt(t.capacity, 10) || 0, el.type[0] + el.id];
+      Math.max(0, ...s.map((x) => x[2]), kw(t['charging_station:output'])), t.fee === 'no' ? 0 : t.fee === 'yes' ? 1 : null, t.opening_hours || '', parseInt(t.capacity, 10) || 0, el.type[0] + el.id, precioOSM(t)];
   });
 }
 async function resumen() {
@@ -242,6 +259,7 @@ function localizar(silencioso) {
 }
 function fijarPos(p) {
   S.pos = p;
+  S.ptsEsperaPos = false;
   if (S.ptsCentro && dist(p.lat, p.lon, S.ptsCentro.lat, S.ptsCentro.lon) * 1000 > S.ptsCentro.rad * 0.6) { S.pts = null; S.ptsCentro = null; }
   S.limite = 60;
   render();
@@ -293,12 +311,28 @@ function cercanas() {
   arr.sort(ord[c.orden] || ord.precio);
   return { lista: arr, todas };
 }
+// La distancia en línea recta se convierte en distancia por carretera con un factor medio
+const RUTA = 1.3;
+const minutosIda = (d) => ((d * RUTA) / Math.max(5, S.cfg.velMedia)) * 60;
+const minTxt = (m) => (m < 1 ? '<1 min' : m < 60 ? Math.round(m) + ' min' : Math.floor(m / 60) + ' h ' + Math.round(m % 60) + ' min');
 function coste(e) {
-  // Coste de llenar + ir y volver desde tu posición
+  // Coste de llenar + combustible para ir y volver + tu tiempo en el trayecto
   const c = S.cfg;
-  const llenar = (e.precio / 1000) * c.litros;
-  const viaje = ((e.d * 2 * c.consumo) / 100) * (e.precio / 1000);
-  return { llenar, viaje, total: llenar + viaje };
+  const pl = e.precio / 1000;
+  const llenar = pl * c.litros;
+  const kmIV = e.d * RUTA * 2;
+  const viaje = ((kmIV * c.consumo) / 100) * pl;
+  const minutos = minutosIda(e.d) * 2;
+  const tiempo = (minutos / 60) * c.valorHora;
+  return { llenar, viaje, kmIV, minutos, tiempo, dinero: llenar + viaje, total: llenar + viaje + tiempo };
+}
+// Explicación de si compensa ir a "e" en vez de a la más cercana
+function veredicto(e, cerca) {
+  if (!cerca || cerca.id === e.id) return null;
+  const a = e.total, b = cerca.total;
+  const ahorro = b.dinero - a.dinero, extra = a.minutos - b.minutos;
+  const compensa = a.total < b.total - 0.05;
+  return { ahorro, extra, compensa, valorExtra: (extra / 60) * S.cfg.valorHora };
 }
 function cargadoresCerca() {
   const c = S.cfg;
@@ -314,9 +348,18 @@ function cargadoresCerca() {
     const kwMax = compat.length ? Math.max(...compat.map((s) => s[2])) : p[5];
     if (c.potMin && !(kwMax >= c.potMin)) continue;
     if (c.gratis && p[6] !== 0) continue;
-    out.push({ lat: p[0], lon: p[1], name: p[2], op: p[3], sk, compat, kw: kwMax, fee: p[6], hor: p[7], cap: p[8], id: p[9], d });
+    const pt = { lat: p[0], lon: p[1], name: p[2], op: p[3], sk, compat, kw: kwMax, fee: p[6], hor: p[7], cap: p[8], id: p[9], osm: p[10] ?? null, d };
+    pt.carga = tiempoCarga(pt);
+    pt.total = costeEv(pt);
+    out.push(pt);
   }
-  out.sort(c.evOrden === 'kw' ? (a, b) => b.kw - a.kw || a.d - b.d : (a, b) => a.d - b.d);
+  const ord = {
+    kw: (a, b) => b.kw - a.kw || a.d - b.d,
+    dist: (a, b) => a.d - b.d,
+    precio: (a, b) => (a.carga?.precio ?? 9) - (b.carga?.precio ?? 9) || a.d - b.d,
+    total: (a, b) => a.total - b.total || a.d - b.d,
+  };
+  out.sort(ord[c.evOrden] || ord.dist);
   return out;
 }
 function tiempoCarga(pt) {
@@ -327,12 +370,33 @@ function tiempoCarga(pt) {
     if (t === 'ccs' || t === 'chademo' || t === 'tesla') { ef = Math.min(k || 50, c.dcKw); dc = true; }
     else if (t === 'schuko') ef = Math.min(k || 2.3, 2.3, c.acKw);
     else ef = Math.min(k || 7.4, c.acKw);
-    if (!mejor || ef > mejor.ef) mejor = { t, ef, dc };
+    if (!mejor || ef > mejor.ef) mejor = { t, ef, dc, kw: k };
   }
   if (!mejor) return null;
   const kwh = 0.7 * c.bat;
   const h = kwh / (mejor.ef * (mejor.dc ? 0.85 : 0.92));
-  return { ...mejor, kwh, h, coste: pt.fee === 0 ? 0 : kwh * c.kwhPrecio };
+  const pk = precioKwh(pt, mejor);
+  return { ...mejor, kwh, h, precio: pk.p, fuente: pk.fuente, coste: kwh * pk.p };
+}
+// Precio por kWh: tu tarifa > OpenStreetMap > gratis > estimación por tipo de cargador
+const claveOp = (pt) => (pt.op ? 'op:' + norm(pt.op) : 'id:' + pt.id);
+function precioKwh(pt, uso) {
+  const c = S.cfg;
+  const propia = c.tarifas?.[claveOp(pt)] ?? c.tarifas?.['id:' + pt.id];
+  if (propia != null) return { p: propia, fuente: 'tu tarifa' };
+  if (pt.fee === 0) return { p: 0, fuente: 'gratis' };
+  if (pt.osm) return { p: pt.osm, fuente: 'OpenStreetMap' };
+  const kwPunto = uso?.kw || pt.kw || 0;
+  if (uso?.dc) return kwPunto >= 100 ? { p: c.kwhHPC, fuente: 'estimado (ultrarrápida)' } : { p: c.kwhDC, fuente: 'estimado (rápida)' };
+  return { p: c.kwhAC, fuente: 'estimado (lenta)' };
+}
+function costeEv(pt) {
+  // carga del 10 al 80 % + energía para ir y volver + tu tiempo de trayecto
+  // + el tiempo de carga a mitad de valor (mientras carga puedes hacer otras cosas)
+  const c = S.cfg;
+  if (!pt.carga) return 9e9;
+  const viaje = ((pt.d * RUTA * 2 * c.evConsumo) / 100) * c.kwhCasa;
+  return pt.carga.coste + viaje + ((minutosIda(pt.d) * 2) / 60) * c.valorHora + pt.carga.h * c.valorHora * 0.5;
 }
 const durTxt = (h) => (h < 1 ? Math.round(h * 60) + ' min' : Math.floor(h) + ' h ' + String(Math.round((h % 1) * 60)).padStart(2, '0') + ' min');
 
@@ -344,7 +408,8 @@ function render() {
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + S.cfg.vista));
   $('#locTxt').textContent = textoPos();
   renderChips();
-  if (S.cfg.modo === 'ev' && !S.pts) cargadores();
+  if (S.ptsCentro && S.cfg.evRadio * 1000 > S.ptsCentro.rad) { S.pts = null; S.ptsCentro = null; }
+  if (S.cfg.modo === 'ev' && !S.pts && !S.ptsEsperaPos) cargadores();
   const v = S.cfg.vista;
   if (v === 'lista') S.cfg.modo === 'ev' ? renderListaEv() : renderLista();
   if (v === 'mapa') renderMapa();
@@ -362,14 +427,14 @@ function renderChips() {
   if (c.modo === 'fuel') {
     h += chipSel('fuel', '', c.fuel, Object.keys(FUEL_NAMES).map((k) => [k, FUEL_NAMES[k]]));
     h += chipSel('radio', '≤ ', c.radio, [1, 2, 3, 5, 10, 15, 25, 50].map((n) => [n, n + ' km']));
-    h += chipSel('orden', '', c.orden, [['precio', 'Más barata'], ['dist', 'Más cerca'], ['total', 'Coste real']]);
+    h += chipSel('orden', '', c.orden, [['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['dist', 'Más cerca']]);
     h += `<button class="chip ${c.lowcost ? 'on' : ''}" data-tog="lowcost">💰 Low cost</button>`;
     h += `<button class="chip ${c.abiertas ? 'on' : ''}" data-tog="abiertas">🕐 Abiertas</button>`;
     h += `<button class="chip ${c.marcas.length ? 'on' : ''}" id="chipMarcas">🏷️ Marcas${c.marcas.length ? ' (' + c.marcas.length + ')' : ''}</button>`;
   } else {
     h += chipSel('evRadio', '≤ ', c.evRadio, [2, 5, 10, 15, 25, 50].map((n) => [n, n + ' km']));
     h += chipSel('potMin', '', c.potMin, [[0, 'Cualquier potencia'], [7, '≥ 7 kW'], [22, '≥ 22 kW'], [50, '≥ 50 kW (rápida)'], [100, '≥ 100 kW']]);
-    h += chipSel('evOrden', '', c.evOrden, [['dist', 'Más cerca'], ['kw', 'Más potente']]);
+    h += chipSel('evOrden', '', c.evOrden, [['dist', 'Más cerca'], ['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['kw', 'Más potente']]);
     h += `<button class="chip on" id="chipConect">🔌 ${c.conectores.filter((x) => x !== 't2c').map((x) => SOCKET_NAMES[x]).join(' + ') || 'Conector'}</button>`;
     h += `<button class="chip ${c.gratis ? 'on' : ''}" data-tog="gratis">🆓 Gratis</button>`;
   }
@@ -411,11 +476,10 @@ function tarjeta(e, cortes, ahora = new Date()) {
   const ab = horarioHoy(e.hor, ahora);
   const otro = ES_GASOLINA(S.cfg.fuel) ? 'dsl' : 'g95';
   const extras = [];
-  extras.push(`<span class="tag"><b>${km(e.d)}</b></span>`);
+  extras.push(`<span class="tag"><b>${km(e.d)}</b> · ${minTxt(minutosIda(e.d))}</span>`);
   if (e.p[otro]) extras.push(`<span class="tag">${FUEL_SHORT[otro]} <b>${pr(e.p[otro])}</b></span>`);
   const dl = deltaAyer(e, S.cfg.fuel);
   if (dl) extras.push(`<span class="tag ${dl < 0 ? 'baja' : 'sube'}">${dl < 0 ? '▼' : '▲'} ${Math.abs(dl / 10).toLocaleString('es-ES', { maximumFractionDigits: 1 })} cts</span>`);
-  if (S.cfg.orden === 'total') extras.push(`<span class="tag">Total <b>${eur(e.total.total)}</b></span>`);
   if (esLowcost(e)) extras.push('<span class="tag lc">Low cost</span>');
   if (ab === false) extras.push('<span class="tag cl">Cerrada ahora</span>');
   else if (/24\s*H/i.test(e.hor)) extras.push('<span class="tag op">24 h</span>');
@@ -441,12 +505,19 @@ function renderLista() {
   // Banner: mejor opción real vs la más cercana
   const cerca = lista.reduce((a, b) => (b.d < a.d ? b : a));
   const mejor = lista.reduce((a, b) => (b.total.total < a.total.total ? b : a));
-  const ahorro = cerca.total.total - mejor.total.total;
+  const barata = lista.reduce((a, b) => (b.precio < a.precio || (b.precio === a.precio && b.d < a.d) ? b : a));
   const media = lista.reduce((a, e) => a + e.precio, 0) / lista.length;
+  const nom = (e) => esc(nombreMarca(marca(e.rot)) === 'Sin marca' ? titulo(e.rot) : nombreMarca(marca(e.rot)));
   let b = '';
-  if (mejor.id === cerca.id) b = `<b>La más cercana es también la que más te conviene</b><small>${esc(nombreMarca(marca(mejor.rot)))} a ${km(mejor.d)} · ${pr(mejor.precio)} €/L · llenar ${c.litros} L: ${eur(mejor.total.llenar)}</small>`;
-  else b = `<b>Mejor opción: ${esc(nombreMarca(marca(mejor.rot)))} a ${km(mejor.d)}</b> · ${pr(mejor.precio)} €/L<small>Llenando ${c.litros} L ahorras ${eur(Math.max(0, ahorro))} frente a la más cercana, contando el desplazamiento. <button data-est="${mejor.id}">Ver</button></small>`;
-  b += `<small>${lista.length} gasolineras · media ${pr(media)} €/L · precios ${haceCuanto()}</small>`;
+  if (mejor.id === cerca.id) {
+    b = `<b>Te compensa la más cercana: ${nom(mejor)}</b> · ${km(mejor.d)}, ${minTxt(minutosIda(mejor.d))}<small>${pr(mejor.precio)} €/L · llenar ${c.litros} L: ${eur(mejor.total.llenar)}</small>`;
+    const v = veredicto(barata, cerca);
+    if (v && v.ahorro > 0.01) b += `<small>La más barata (${nom(barata)}, a ${km(barata.d)}) te ahorraría ${eur(v.ahorro)}, pero son ${minTxt(v.extra)} más de trayecto: no compensa. <button data-est="${barata.id}">Ver</button></small>`;
+  } else {
+    const v = veredicto(mejor, cerca);
+    b = `<b>Te compensa: ${nom(mejor)} a ${km(mejor.d)}</b> · ${pr(mejor.precio)} €/L<small>Ahorras ${eur(Math.max(0, v.ahorro))} frente a la más cercana${v.extra >= 1 ? ` y son ${minTxt(v.extra)} más de trayecto (ida y vuelta)` : ''}. <button data-est="${mejor.id}">Ver</button></small>`;
+  }
+  b += `<small>${lista.length} gasolineras · media ${pr(media)} €/L · precios ${haceCuanto()}${c.valorHora ? ` · tu tiempo: ${c.valorHora} €/h` : ''}</small>`;
   $('#banner').innerHTML = `<div class="banner">${b}</div>`;
   const ahora = new Date();
   let h = lista.slice(0, S.limite).map((e) => tarjeta(e, cortes, ahora)).join('');
@@ -456,14 +527,14 @@ function renderLista() {
 }
 
 function tarjetaEv(p) {
-  const t = tiempoCarga(p);
+  const t = p.carga;
   const sk = p.sk.length ? p.sk.map((s) => `<span class="tag ${p.compat.includes(s) ? 'ev' : ''}">${SOCKET_NAMES[s[0]]}${s[1] > 1 ? ' ×' + s[1] : ''}${s[2] ? ' · <b>' + s[2] + ' kW</b>' : ''}</span>`).join('') : '<span class="tag">Conector sin especificar</span>';
   const titulo_ = p.name || p.op || 'Punto de recarga';
   return `<div class="card" data-ev="${p.id}">
     <div class="nm">${S.favsEv.has(p.id) ? '<span class="star">★</span>' : ''}<span class="t">${esc(titulo_)}</span></div>
     <div class="big"><span class="price ${p.kw >= 50 ? 'p-ok' : p.kw >= 22 ? 'p-mid' : ''}" style="${p.kw ? '' : 'color:var(--muted)'}">${p.kw ? p.kw : '?'}<small> kW</small></span><span class="lbl">${km(p.d)}</span></div>
-    <div class="sub">${esc(p.name && p.op ? p.op : '')}${p.fee === 0 ? ' · Gratis' : ''}</div>
-    <div class="row2">${sk}${t ? `<span class="tag">10→80 % <b>${durTxt(t.h)}</b></span>` : ''}</div>
+    <div class="sub">${esc(p.name && p.op ? p.op : '')}</div>
+    <div class="row2">${t ? `<span class="tag ${t.precio === 0 ? 'lc' : ''}">${t.precio === 0 ? 'Gratis' : `${t.fuente.startsWith('estimado') ? '~' : ''}<b>${t.precio.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €/kWh</b>`}</span>` : ''}<span class="tag">${minTxt(minutosIda(p.d))}</span>${sk}${t ? `<span class="tag">10→80 % <b>${durTxt(t.h)}</b>${t.coste ? ' · ' + eur(t.coste, 0) : ''}</span>` : ''}</div>
   </div>`;
 }
 function renderListaEv() {
@@ -472,7 +543,13 @@ function renderListaEv() {
   const l = cargadoresCerca();
   const c = S.cfg;
   const rapidos = l.filter((p) => p.compat.some((s) => s[0] === 'ccs')).length;
-  $('#banner').innerHTML = l.length ? `<div class="banner"><b>${l.length} puntos de recarga compatibles con tu ${esc(c.evModelo)}</b><small>${rapidos} con carga rápida CCS2 · a menos de ${c.evRadio} km · ${esc(S.ptsFuente)}</small></div>` : '';
+  const mejor = l.filter((p) => p.carga).reduce((a, b) => (!a || b.total < a.total ? b : a), null);
+  let bn = '';
+  if (mejor) {
+    const t = mejor.carga;
+    bn = `<b>Te compensa: ${esc(mejor.name || mejor.op || 'Punto de recarga')}</b> · ${km(mejor.d)}, ${minTxt(minutosIda(mejor.d))}<small>${t.precio === 0 ? 'Gratis' : (t.fuente.startsWith('estimado') ? '~' : '') + t.precio.toLocaleString('es-ES', { minimumFractionDigits: 2 }) + ' €/kWh · ' + t.fuente} · 10→80 % en ${durTxt(t.h)}${t.coste ? ' por ' + eur(t.coste) : ''} <button data-ev="${mejor.id}">Ver</button></small><small>Cuenta el precio, el trayecto y el tiempo de carga.</small>`;
+  }
+  $('#banner').innerHTML = l.length ? `<div class="banner">${bn}<small>${l.length} puntos compatibles con tu ${esc(c.evModelo)} · ${rapidos} con CCS2 · ${esc(S.ptsFuente)}</small></div>` : '';
   if (!l.length) { $('#lista').innerHTML = `<div class="empty"><b>No hay puntos de recarga con estos filtros</b>Prueba a ampliar la distancia (ahora ${c.evRadio} km) o bajar la potencia mínima.</div>`; return; }
   let h = l.slice(0, S.limite).map(tarjetaEv).join('');
   if (l.length > S.limite) h += `<button class="more" id="mas">Ver más (${l.length - S.limite})</button>`;
@@ -561,11 +638,23 @@ async function detalle(id) {
       <div class="kv"><span>20 €</span><span>${litros(20)} L</span></div>
       <div class="kv"><span>30 €</span><span>${litros(30)} L</span></div>
       <div class="kv"><span>50 €</span><span>${litros(50)} L</span></div></div>`;
-    calc += `<div class="box"><h3>🧮 Calculadora (${esc(FUEL_NAMES[c.fuel])})</h3>
+    // la más cercana con el mismo combustible para comparar
+    let cerca = null;
+    for (const x of S.est) {
+      if (!x.p[c.fuel] || !S.pos) continue;
+      const dx = dist(S.pos.lat, S.pos.lon, x.lat, x.lon);
+      if (!cerca || dx < cerca.d) cerca = { ...x, d: dx, precio: x.p[c.fuel] };
+    }
+    if (cerca) cerca.total = coste(cerca);
+    e.total = t;
+    const v = veredicto(e, cerca);
+    calc += `<div class="box"><h3>🧮 ¿Me compensa ir? (${esc(FUEL_NAMES[c.fuel])})</h3>
       <div class="kv"><span>Repostar ${c.litros} L</span><span>${eur(t.llenar)}</span></div>
-      <div class="kv"><span>Ir y volver (${km(d * 2)}, ${c.consumo} L/100 km)</span><span>${eur(t.viaje)}</span></div>
-      <div class="kv tot"><span>Coste real</span><span>${eur(t.total)}</span></div>
-      <div class="muted" style="margin-top:6px">Puedes cambiar litros y consumo en Ajustes.</div></div>`;
+      <div class="kv"><span>Combustible ida y vuelta (≈ ${km(t.kmIV)})</span><span>${eur(t.viaje)}</span></div>
+      <div class="kv"><span>Tu tiempo: ${minTxt(t.minutos)} a ${c.valorHora} €/h</span><span>${eur(t.tiempo)}</span></div>
+      <div class="kv tot"><span>Coste total</span><span>${eur(t.total)}</span></div>
+      ${v ? `<div class="veredicto ${v.compensa ? 'si' : 'no'}">${v.compensa ? '✅ <b>Compensa</b>' : '❌ <b>No compensa</b>'} frente a la más cercana (${esc(nombreMarca(marca(cerca.rot)))}, ${km(cerca.d)}): ${v.ahorro >= 0 ? `ahorras ${eur(v.ahorro)}` : `pagas ${eur(-v.ahorro)} más`} y son ${minTxt(Math.max(0, v.extra))} más de trayecto${v.extra > 0 && c.valorHora ? ` (para ti valen ${eur(v.valorExtra)})` : ''}.</div>` : cerca && cerca.id === e.id ? '<div class="veredicto si">📍 Es la gasolinera más cercana.</div>' : ''}
+      <div class="muted" style="margin-top:6px">Trayecto estimado a ${c.velMedia} km/h de media. Cambia la velocidad, el valor de tu tiempo, los litros y el consumo en Ajustes.</div></div>`;
   }
   const fav = S.favs.has(e.id);
   abrirHoja(`<h2><span>${esc(nombreMarca(marca(e.rot)) === 'Sin marca' ? titulo(e.rot) : nombreMarca(marca(e.rot)))}</span><button class="favbtn ${fav ? 'on' : ''}" data-fav="${e.id}" aria-label="Favorita">${fav ? '★' : '☆'}</button></h2>
@@ -601,9 +690,12 @@ function detalleEv(id) {
   if (!p) return;
   const d = S.pos ? dist(S.pos.lat, S.pos.lon, p[0], p[1]) : 0;
   const pt = { lat: p[0], lon: p[1], name: p[2], op: p[3], sk: p[4], kw: p[5], fee: p[6], hor: p[7], cap: p[8], id: p[9], d };
+  pt.osm = p[10] ?? null;
   pt.compat = pt.sk.filter((s) => S.cfg.conectores.includes(s[0]));
   if (!pt.sk.length) pt.compat = [['t2', 1, 0]]; // supuesto razonable si no hay datos
   const t = tiempoCarga(pt);
+  const clave = claveOp(pt);
+  const propia = S.cfg.tarifas?.[clave];
   const fav = S.favsEv.has(id);
   const c = S.cfg;
   const sk = pt.sk.length ? pt.sk.map((s) => `<tr><td>${SOCKET_NAMES[s[0]]}${pt.compat.includes(s) ? ' ✅' : ''}</td><td>${s[2] ? s[2] + ' kW' : '—'}</td><td>${s[1]} toma${s[1] > 1 ? 's' : ''}</td></tr>`).join('') : '<tr><td colspan="3" class="muted">OpenStreetMap no indica los conectores de este punto.</td></tr>';
@@ -615,8 +707,15 @@ function detalleEv(id) {
     ${t ? `<div class="box"><h3>🔋 Tu ${esc(c.evModelo)} del 10 % al 80 %</h3>
       <div class="kv"><span>Conector usado</span><span>${SOCKET_NAMES[t.t]} a ${t.ef.toLocaleString('es-ES')} kW</span></div>
       <div class="kv"><span>Energía (${t.kwh.toLocaleString('es-ES', { maximumFractionDigits: 1 })} kWh)</span><span>≈ ${durTxt(t.h)}</span></div>
-      <div class="kv tot"><span>Coste estimado</span><span>${t.coste === 0 ? 'Gratis' : '≈ ' + eur(t.coste)}</span></div>
-      <div class="muted" style="margin-top:6px">${pt.fee === 0 ? '' : `Con ${eur(c.kwhPrecio)}/kWh orientativo (cámbialo en Ajustes). `}El precio real depende del operador y de tu tarifa.</div></div>` : ''}
+      <div class="kv"><span>Precio</span><span>${t.precio === 0 ? 'Gratis' : t.precio.toLocaleString('es-ES', { minimumFractionDigits: 2 }) + ' €/kWh'}</span></div>
+      <div class="kv tot"><span>Coste de la carga</span><span>${t.coste === 0 ? 'Gratis' : (t.fuente.startsWith('estimado') ? '≈ ' : '') + eur(t.coste)}</span></div>
+      <div class="kv"><span>Trayecto ida y vuelta</span><span>${minTxt(minutosIda(d) * 2)}</span></div>
+      <div class="muted" style="margin-top:6px">Precio: <b>${esc(t.fuente)}</b>. ${t.fuente.startsWith('estimado') ? 'Los operadores no publican sus tarifas en abierto; consulta el precio exacto en su app o en el mapa oficial Reve y guárdalo aquí abajo.' : ''}</div></div>
+    <div class="box"><h3>💾 ¿Cuánto pagas aquí?</h3>
+      <div class="muted">Se guarda para ${pt.op ? 'todos los cargadores de <b>' + esc(pt.op) + '</b>' : 'este cargador'} y se usa en los cálculos.</div>
+      <div class="tarifa"><input id="tarifaIn" type="text" inputmode="decimal" autocomplete="off" placeholder="0,49" value="${propia != null ? String(propia).replace('.', ',') : ''}"><span>€/kWh</span>
+      <button class="btn" data-tarifa="${esc(clave)}" data-evid="${id}">Guardar</button>${propia != null ? `<button class="btn alt" data-tarifadel="${esc(clave)}" data-evid="${id}">Quitar</button>` : ''}</div>
+      <a class="muted" href="https://www.mapareve.es/mapa-puntos-recarga" target="_blank" rel="noopener">Ver precios oficiales en el mapa Reve (Ministerio y Red Eléctrica) ↗</a></div>` : ''}
     <div class="muted">Datos de OpenStreetMap. <a href="https://www.openstreetmap.org/${{ n: 'node', w: 'way', r: 'relation' }[id[0]]}/${id.slice(1)}" target="_blank" rel="noopener">Ver o corregir</a></div>`);
 }
 
@@ -661,6 +760,7 @@ function renderFavs() {
     h += evs.map((p) => {
       const pt = { lat: p[0], lon: p[1], name: p[2], op: p[3], sk: p[4], kw: p[5], fee: p[6], hor: p[7], cap: p[8], id: p[9], d: S.pos ? dist(S.pos.lat, S.pos.lon, p[0], p[1]) : 0 };
       pt.compat = pt.sk.filter((s) => c.conectores.includes(s[0]));
+      pt.osm = p[10] ?? null; pt.carga = tiempoCarga(pt);
       return tarjetaEv(pt);
     }).join('') || '<div class="empty">Cargando…</div>';
     if (!S.pts) cargadores();
@@ -682,7 +782,7 @@ async function renderTend() {
   h += `<h2 style="margin:0 0 8px">Tus dos coches: coste por 100 km</h2><div class="stat">
     <div><b>${g95 ? eur((c.consumo * g95)) : '—'}</b><span>Híbrido · ${c.consumo} L/100 km${g95 ? ' a ' + g95.toLocaleString('es-ES', { maximumFractionDigits: 3 }) + ' €/L' : ''}</span></div>
     <div><b>${eur(c.evConsumo * c.kwhCasa)}</b><span>${esc(c.evModelo)} en casa · ${c.evConsumo} kWh a ${eur(c.kwhCasa, 2)}</span></div>
-    <div><b>${eur(c.evConsumo * c.kwhPrecio)}</b><span>${esc(c.evModelo)} en carga pública · ${eur(c.kwhPrecio)}/kWh</span></div>
+    <div><b>${eur(c.evConsumo * c.kwhDC)}</b><span>${esc(c.evModelo)} en carga rápida pública · ~${eur(c.kwhDC)}/kWh</span></div>
     <div><b>${g95 ? eur(c.consumo * g95 - c.evConsumo * c.kwhCasa) : '—'}</b><span>Ahorro cada 100 km usando el eléctrico cargado en casa</span></div></div>`;
   if (!r || !r.d?.length) {
     h += '<div class="box"><h3>📈 Historial</h3><div class="muted">El historial de precios se empieza a guardar en cuanto la app esté publicada en GitHub (una vez al día). Vuelve en unos días.</div></div>';
@@ -732,7 +832,9 @@ async function renderTend() {
 function campo(id, label, tipo = 'number', extra = '') {
   const v = S.cfg[id];
   if (tipo === 'check') return `<div class="field"><label for="f-${id}">${label}</label><input id="f-${id}" type="checkbox" data-set="${id}" ${v ? 'checked' : ''}></div>`;
-  return `<div class="field"><label for="f-${id}">${label}</label><input id="f-${id}" type="${tipo}" data-set="${id}" value="${esc(v)}" ${extra} inputmode="decimal"></div>`;
+  const num = tipo === 'number';
+  const val = num ? String(v).replace('.', ',') : v;
+  return `<div class="field"><label for="f-${id}">${label}</label><input id="f-${id}" type="text" data-set="${id}" value="${esc(val)}" ${num ? 'inputmode="decimal" autocomplete="off"' : ''}></div>`;
 }
 function renderAjustes() {
   const c = S.cfg;
@@ -744,13 +846,21 @@ function renderAjustes() {
     <div class="field"><label>Combustible</label><select data-set="fuel">${Object.keys(FUEL_NAMES).map((k) => `<option value="${k}" ${k === c.fuel ? 'selected' : ''}>${FUEL_NAMES[k]}</option>`).join('')}</select></div>
     ${campo('litros', 'Litros que sueles repostar', 'number', 'min="1" max="120" step="1"')}
     ${campo('consumo', 'Consumo (L/100 km)', 'number', 'min="1" max="20" step="0.1"')}
+    <h2>⏱️ Tu tiempo</h2>
+    ${campo('valorHora', 'Cuánto vale tu tiempo (€/hora)', 'number', 'min="0" step="1"')}
+    ${campo('velMedia', 'Velocidad media en tus trayectos (km/h)', 'number', 'min="5" max="120" step="1"')}
+    <div class="muted">Se usa para decidir si compensa ir más lejos. Con 0 €/h solo se cuenta el dinero. En ciudad, 20–30 km/h es lo normal.</div>
     <h2>⚡ Coche eléctrico</h2>
     ${campo('evModelo', 'Modelo', 'text')}
     ${campo('bat', 'Batería útil (kWh)', 'number', 'step="0.1"')}
     ${campo('acKw', 'Carga AC máx. (kW)', 'number', 'step="0.1"')}
     ${campo('dcKw', 'Carga rápida DC máx. (kW)', 'number', 'step="1"')}
     ${campo('evConsumo', 'Consumo (kWh/100 km)', 'number', 'step="0.1"')}
-    ${campo('kwhPrecio', 'Precio carga pública (€/kWh)', 'number', 'step="0.01"')}
+    <div class="muted" style="margin:10px 2px 6px">Precios orientativos de recarga pública cuando no conoces la tarifa:</div>
+    ${campo('kwhAC', 'Carga lenta AC (€/kWh)', 'number', 'step="0.01"')}
+    ${campo('kwhDC', 'Carga rápida DC (€/kWh)', 'number', 'step="0.01"')}
+    ${campo('kwhHPC', 'Ultrarrápida ≥100 kW (€/kWh)', 'number', 'step="0.01"')}
+    ${Object.keys(c.tarifas || {}).length ? `<div class="box"><h3>💾 Tus tarifas</h3>${Object.entries(c.tarifas).map(([k, v]) => `<div class="kv"><span>${esc(k.startsWith('op:') ? titulo(k.slice(3)) : 'Cargador ' + k.slice(4))}</span><span>${v.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €/kWh <button class="tag" data-tarifadel="${esc(k)}">✕</button></span></div>`).join('')}</div>` : ''}
     ${campo('kwhCasa', 'Precio luz en casa (€/kWh)', 'number', 'step="0.01"')}
     <div class="field" style="flex-wrap:wrap"><label>Conectores de tu coche</label><div class="brands" style="margin:0">${['ccs', 't2', 'chademo', 'schuko'].map((k) => `<button class="chip ${c.conectores.includes(k) ? 'on' : ''}" data-conect="${k}">${SOCKET_NAMES[k]}</button>`).join('')}</div></div>
     ${campo('sinDatos', 'Mostrar puntos sin datos de conector', 'check')}
@@ -805,6 +915,15 @@ document.addEventListener('click', (ev) => {
     t.classList.toggle('on'); t.textContent = S.favsEv.has(id) ? '★' : '☆'; render(); return;
   }
   if (t.dataset.marca) { t.classList.toggle('on'); return; }
+  if (t.dataset.tarifa) {
+    const v = parseFloat(String($('#tarifaIn').value).replace(',', '.'));
+    if (!(v >= 0 && v < 3)) { toast('Escribe un precio en €/kWh, por ejemplo 0,49'); return; }
+    c.tarifas = { ...(c.tarifas || {}), [t.dataset.tarifa]: v }; saveCfg(); toast('Tarifa guardada'); detalleEv(t.dataset.evid); render(); return;
+  }
+  if (t.dataset.tarifadel) {
+    const tf = { ...(c.tarifas || {}) }; delete tf[t.dataset.tarifadel]; c.tarifas = tf; saveCfg();
+    if (t.dataset.evid) detalleEv(t.dataset.evid); render(); return;
+  }
   if (t.dataset.share === 'est') {
     const e = S.est.find((x) => x.id == t.dataset.id);
     const precios = ['g95', 'dsl'].filter((f) => e.p[f]).map((f) => `${FUEL_NAMES[f]}: ${pr(e.p[f])} €`).join(' · ');
@@ -898,6 +1017,7 @@ function mostrarNovedades(v) {
     // usuarios que ya tenían la app (tienen ajustes guardados) ven las novedades
     // el tutorial tiene prioridad: quien no lo ha visto lo ve una vez (también al actualizar)
     if ((anterior || localStorage.getItem('gc.cfg')) && load('tourVisto', false)) setTimeout(() => mostrarNovedades(APP_VERSION), 1200);
+    if (anterior && anterior < '1.3.0' && S.cfg.orden === 'precio') { S.cfg.orden = 'total'; saveCfg(); }
     save('version', APP_VERSION);
   }
 })();
@@ -916,7 +1036,7 @@ const tour = (() => {
     { sel: '#refrescar', t: '↻ Actualizar', x: 'Recarga tu ubicación y los últimos precios. Los precios oficiales se actualizan cada 30 minutos.' },
     { sel: 'select[data-cfg=fuel]', up: '.chip', t: '⛽ Combustible', x: 'Elige qué combustible quieres comparar: gasolina 95, 98, diésel, GLP… Las tarjetas se ordenan y colorean según este precio.' },
     { sel: 'select[data-cfg=radio]', up: '.chip', t: '📏 Distancia', x: 'Hasta cuántos kilómetros buscar: desde 1 km hasta 50 km.' },
-    { sel: 'select[data-cfg=orden]', up: '.chip', t: '↕️ Orden', x: '<b>Más barata</b>, <b>más cerca</b> o <b>coste real</b>: suma el depósito y lo que gastas en ir y volver. Así sabes si compensa ir más lejos.' },
+    { sel: 'select[data-cfg=orden]', up: '.chip', t: '↕️ Orden', x: '<b>Lo que más compensa</b> suma el depósito, el combustible para ir y volver y <b>tu tiempo</b>. Así no te manda lejos por ahorrar un euro. También puedes ordenar por <b>más barata</b> o <b>más cerca</b>.' },
     { sel: '[data-tog=lowcost]', t: '💰 Filtros rápidos', x: '<b>Low cost</b> muestra solo las marcas baratas, <b>Abiertas</b> quita las cerradas ahora mismo y <b>Marcas</b> te deja elegir las tuyas. Desliza la fila hacia la izquierda para verlos todos.' },
     { sel: '#banner .banner', t: '⭐ La mejor opción', x: 'Aquí te digo cuál te conviene más y cuánto ahorras frente a la gasolinera más cercana, contando el desplazamiento.' },
     { sel: '#lista .card', t: '🏷️ Cada gasolinera', x: 'El precio sale en <b style="color:var(--ok)">verde</b> si es barato, en <b style="color:var(--mid)">ámbar</b> si es normal y en <b style="color:var(--bad)">rojo</b> si es caro. <b>▼▲</b> indica si ha bajado o subido desde ayer.<br><br><b>Tócala</b> para ver todos los precios, ir con Google Maps o Waze, guardarla en ★ favoritas, compartirla o usar la calculadora.' },

@@ -12,7 +12,9 @@ Sin servidores de pago ni anuncios: todo se aloja gratis en **GitHub Pages**, y 
 - **Mapa** con los precios en colores (verde barata, ámbar media, rojo cara).
 - **Favoritas** (gasolineras y cargadores) y **navegación** con Google Maps, Waze o Apple Maps.
 - **Historial**: gráfica de 90 días por gasolinera, media de tu provincia, aviso de si es buen momento para repostar y el día de la semana más barato.
+- **Lo que más compensa**: tiene en cuenta el combustible del trayecto y **tu tiempo** (€/hora configurable), para no mandarte lejos por ahorrar 1 €.
 - **Modo recarga ⚡**: puntos de recarga filtrados por conector (CCS2 y Tipo 2 para el Leapmotor T03), potencia y gratuitos, con **tiempo estimado del 10 % al 80 %** y coste.
+  Los operadores no publican sus tarifas en abierto (solo se ven en el mapa oficial [Reve](https://www.mapareve.es)), así que el precio es **tu tarifa** si la guardas, el de OpenStreetMap si lo hay o una estimación por tipo de cargador.
 - **Comparativa** del coste por 100 km entre el híbrido y el eléctrico.
 - Funciona **sin conexión** con los últimos datos descargados.
 
