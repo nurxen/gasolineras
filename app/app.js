@@ -3,8 +3,16 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
-const APP_VERSION = '1.4.2';
+const APP_VERSION = '1.5.0';
 const NOVEDADES = {
+  '1.5.0': [
+    '⚡ <b>Arranque instantáneo</b>: al abrir la app ves al momento los últimos precios guardados y se actualizan solos por detrás (antes esperaba a descargarlo todo).',
+    '🛰️ <b>Ruta en marcha</b>: mientras tienes la Ruta abierta, la app sigue tu GPS y va quitando las gasolineras que ya has pasado y actualizando kilómetros y horas.',
+    '🏷️ Arreglado el filtro <b>Low cost</b>: marcaba por error gasolineras como Repsol Alhambra o Shell Schamann (contenían las letras «HAM»).',
+    '⏰ Aviso si los precios llevan <b>muchas horas sin actualizarse</b> (por ejemplo, si GitHub pausa las actualizaciones).',
+    '📱 En iPhone la pantalla ya no hace zoom al tocar el buscador ni los campos de Ajustes.',
+    '🧹 En la Ruta solo se ven los filtros que sirven ahí, y otros detalles pulidos.',
+  ],
   '1.4.2': [
     '🛣️ <b>Cálculo correcto en ruta</b>: al abrir una gasolinera o un cargador desde la Ruta, ya no se calcula «ir y volver» desde donde estás. Como vas a pasar por allí igualmente, solo cuenta el <b>desvío</b>, y se compara con las demás paradas de tu ruta: la que más compensa y la primera que te vas a encontrar.',
   ],
@@ -127,9 +135,15 @@ function nombreLoc(s) {
   const t = m ? `${m[2]}${/'$/.test(m[2]) ? '' : ' '}${m[1]}` : s;
   return titulo(t).replace(/\b(De|Del|La|Las|Los|El|Y|En)\b/g, (w, _, i) => (i === 0 ? w : w.toLowerCase()));
 }
+const lcCache = { lista: null, re: null };
 function esLowcost(e) {
-  const n = norm(e.rot);
-  return S.cfg.lowcostList.some((b) => b && n.includes(norm(b)));
+  // palabra completa: «HAM» no debe coincidir con «ALHAMBRA» ni «SCHAMANN»
+  if (lcCache.lista !== S.cfg.lowcostList) {
+    const alt = S.cfg.lowcostList.filter(Boolean).map((b) => norm(b).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    lcCache.re = alt.length ? new RegExp('(^|[^A-Z0-9])(' + alt.join('|') + ')(?=[^A-Z0-9]|$)') : null;
+    lcCache.lista = S.cfg.lowcostList;
+  }
+  return !!lcCache.re && lcCache.re.test(norm(e.rot));
 }
 
 // ---------------------------------------------------------------- Horarios
@@ -189,7 +203,15 @@ function mitecoACompacto(api) {
   }
   return { fecha: api.Fecha, fuels, provs, est };
 }
+async function desdeCache(ruta) {
+  // última copia guardada por el service worker (para pintar al instante)
+  try { const hit = 'caches' in window && (await caches.match(ruta, { ignoreSearch: true })); return hit ? await hit.json() : null; } catch { return null; }
+}
 async function datos(forzarDirecto = false) {
+  if (!S.est.length && !forzarDirecto) {
+    const j = await desdeCache('data/stations.json');
+    if (j && !S.est.length) { cargarEstaciones(j); render(); }
+  }
   try {
     if (forzarDirecto) throw new Error('directo');
     const r = await fetch('data/stations.json', { cache: 'no-cache' });
@@ -203,6 +225,7 @@ async function datos(forzarDirecto = false) {
       cargarEstaciones(mitecoACompacto(await r.json()));
     } catch (e2) {
       if (!S.est.length) { $('#lista').innerHTML = `<div class="empty"><b>No hay conexión</b>No se pudieron descargar los precios. Inténtalo de nuevo en un momento.</div>`; }
+      else toast('Sin conexión: mostrando los últimos precios guardados');
       return;
     }
   }
@@ -212,6 +235,8 @@ async function datos(forzarDirecto = false) {
 async function cargadores() {
   if (S.pts || S.ptsCargando) return;
   S.ptsCargando = true;
+  const cj = await desdeCache('data/chargers.json');
+  if (cj && !S.pts) { S.pts = cj.pts; S.ptsFuente = 'OpenStreetMap · ' + new Date(cj.generado).toLocaleDateString('es-ES'); S.ptsCargando = false; render(); S.ptsCargando = true; }
   try {
     const r = await fetch('data/chargers.json', { cache: 'no-cache' });
     if (!r.ok) throw new Error(r.status);
@@ -573,6 +598,7 @@ function render() {
   if (v === 'mapa') renderMapa();
   if (v === 'favs') renderFavs();
   if (v === 'ruta') renderRuta();
+  else seguirRuta(false);
   if (v === 'tend') renderTend();
   if (v === 'ajustes') renderAjustes();
 }
@@ -583,17 +609,18 @@ function chipSel(id, label, valor, opciones) {
 function renderChips() {
   const c = S.cfg;
   let h = '';
+  const enRuta = c.vista === 'ruta'; // en la ruta, distancia y orden van dentro de la propia pantalla
   if (c.modo === 'fuel') {
     h += chipSel('fuel', '', c.fuel, Object.keys(FUEL_NAMES).map((k) => [k, FUEL_NAMES[k]]));
-    h += chipSel('radio', '≤ ', c.radio, [1, 2, 3, 5, 10, 15, 25, 50].map((n) => [n, n + ' km']));
-    h += chipSel('orden', '', c.orden, [['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['dist', 'Más cerca']]);
+    if (!enRuta) h += chipSel('radio', '≤ ', c.radio, [1, 2, 3, 5, 10, 15, 25, 50].map((n) => [n, n + ' km']));
+    if (!enRuta) h += chipSel('orden', '', c.orden, [['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['dist', 'Más cerca']]);
     h += `<button class="chip ${c.lowcost ? 'on' : ''}" data-tog="lowcost">💰 Low cost</button>`;
     h += `<button class="chip ${c.abiertas ? 'on' : ''}" data-tog="abiertas">🕐 Abiertas</button>`;
     h += `<button class="chip ${c.marcas.length ? 'on' : ''}" id="chipMarcas">🏷️ Marcas${c.marcas.length ? ' (' + c.marcas.length + ')' : ''}</button>`;
   } else {
-    h += chipSel('evRadio', '≤ ', c.evRadio, [2, 5, 10, 15, 25, 50].map((n) => [n, n + ' km']));
+    if (!enRuta) h += chipSel('evRadio', '≤ ', c.evRadio, [2, 5, 10, 15, 25, 50].map((n) => [n, n + ' km']));
     h += chipSel('potMin', '', c.potMin, [[0, 'Cualquier potencia'], [7, '≥ 7 kW'], [22, '≥ 22 kW'], [50, '≥ 50 kW (rápida)'], [100, '≥ 100 kW']]);
-    h += chipSel('evOrden', '', c.evOrden, [['dist', 'Más cerca'], ['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['kw', 'Más potente']]);
+    if (!enRuta) h += chipSel('evOrden', '', c.evOrden, [['dist', 'Más cerca'], ['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['kw', 'Más potente']]);
     h += `<button class="chip on" id="chipConect">🔌 ${c.conectores.filter((x) => x !== 't2c').map((x) => SOCKET_NAMES[x]).join(' + ') || 'Conector'}</button>`;
     h += `<button class="chip ${c.gratis ? 'on' : ''}" data-tog="gratis">🆓 Gratis</button>`;
   }
@@ -624,11 +651,19 @@ function cargarHistLista(lista) {
   faltan.forEach((p) => (S.histPedido[p] = 1));
   Promise.all(faltan.map(histProv)).then(() => { if (S.cfg.vista === 'lista' && S.cfg.modo === 'fuel') renderLista(); });
 }
+function minutosDatos() {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(S.fecha || '');
+  return m ? (Date.now() - new Date(+m[3], m[2] - 1, +m[1], +m[4], +m[5]).getTime()) / 60000 : 0;
+}
+function avisoDatos() {
+  const h = minutosDatos() / 60;
+  return h > 8 ? `<div class="geoaviso">⏰ Los precios son de ${haceCuanto()}. Puede que las actualizaciones automáticas de GitHub estén pausadas: entra en la pestaña <b>Actions</b> del repositorio y pulsa <b>Enable workflow</b>. <button id="directo">Descargar ahora del Ministerio</button></div>` : '';
+}
 function haceCuanto() {
   const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(S.fecha || '');
   if (!m) return '';
   const min = Math.round((Date.now() - new Date(+m[3], m[2] - 1, +m[1], +m[4], +m[5]).getTime()) / 60000);
-  return min < 2 ? 'ahora mismo' : min < 60 ? `hace ${min} min` : min < 1440 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.round(min / 1440)} días`;
+  return min < 2 ? 'ahora mismo' : min < 60 ? `hace ${min} min` : min < 1440 ? `hace ${Math.round(min / 60)} h` : (Math.round(min / 1440) === 1 ? 'hace 1 día' : `hace ${Math.round(min / 1440)} días`);
 }
 
 function tarjeta(e, cortes, ahora = new Date()) {
@@ -686,8 +721,11 @@ function renderLista() {
     const v = veredicto(mejor, cerca);
     b = `<b>Te compensa: ${nom(mejor)} a ${km(mejor.d)}</b> · ${pr(mejor.precio)} €/L<small>Ahorras ${eur(Math.max(0, v.ahorro))} frente a la más cercana${v.extra >= 1 ? ` y son ${minTxt(v.extra)} más de trayecto (ida y vuelta)` : ''}. <button data-est="${mejor.id}">Ver</button></small>`;
   }
-  b += `<small>${lista.length} gasolineras · media ${pr(media)} €/L · precios ${haceCuanto()}${c.valorHora ? ` · tu tiempo: ${c.valorHora} €/h` : ''}</small>`;
-  $('#banner').innerHTML = avisoGeo() + `<div class="banner">${b}</div>`;
+  b += `<small>${lista.length} ${lista.length === 1 ? 'gasolinera' : 'gasolineras'} · media ${pr(media)} €/L · precios ${haceCuanto()}${c.valorHora ? ` · tu tiempo: ${c.valorHora} €/h` : ''}</small>`;
+  const sigRadio = [1, 2, 3, 5, 10, 15, 25, 50].find((n) => n > c.radio);
+  const ampliar = lista.length < 4 && sigRadio && !c.lowcost && !c.marcas.length
+    ? `<div class="geoaviso">Solo hay ${lista.length} ${lista.length === 1 ? 'gasolinera' : 'gasolineras'} a menos de ${c.radio} km. <button data-radio="${Math.max(sigRadio, 15)}">Buscar hasta ${Math.max(sigRadio, 15)} km</button></div>` : '';
+  $('#banner').innerHTML = avisoDatos() + avisoGeo() + `<div class="banner">${b}</div>` + ampliar;
   const ahora = new Date();
   let h = lista.slice(0, S.limite).map((e) => tarjeta(e, cortes, ahora)).join('');
   if (lista.length > S.limite) h += `<button class="more" id="mas">Ver más (${lista.length - S.limite})</button>`;
@@ -718,7 +756,7 @@ function renderListaEv() {
     const t = mejor.carga;
     bn = `<b>Te compensa: ${esc(mejor.name || mejor.op || 'Punto de recarga')}</b> · ${km(mejor.d)}, ${minTxt(minutosIda(mejor.d))}<small>${t.precio === 0 ? 'Gratis' : (t.fuente.startsWith('estimado') ? '~' : '') + t.precio.toLocaleString('es-ES', { minimumFractionDigits: 2 }) + ' €/kWh · ' + t.fuente} · 10→80 % en ${durTxt(t.h)}${t.coste ? ' por ' + eur(t.coste) : ''} <button data-ev="${mejor.id}">Ver</button></small><small>Cuenta el precio, el trayecto y el tiempo de carga.</small>`;
   }
-  $('#banner').innerHTML = l.length ? `<div class="banner">${bn}<small>${l.length} puntos compatibles con tu ${esc(c.evModelo)} · ${rapidos} con CCS2 · ${esc(S.ptsFuente)}</small></div>` : '';
+  $('#banner').innerHTML = l.length ? `<div class="banner">${bn}<small>${l.length} ${l.length === 1 ? 'punto compatible' : 'puntos compatibles'} con tu ${esc(c.evModelo)} · ${rapidos} con CCS2 · ${esc(S.ptsFuente)}</small></div>` : '';
   if (!l.length) { $('#lista').innerHTML = `<div class="empty"><b>No hay puntos de recarga con estos filtros</b>Prueba a ampliar la distancia (ahora ${c.evRadio} km) o bajar la potencia mínima.</div>`; return; }
   let h = l.slice(0, S.limite).map(tarjetaEv).join('');
   if (l.length > S.limite) h += `<button class="more" id="mas">Ver más (${l.length - S.limite})</button>`;
@@ -1136,6 +1174,7 @@ document.addEventListener('click', (ev) => {
     const id = t.dataset.favev; S.favsEv.has(id) ? S.favsEv.delete(id) : S.favsEv.add(id); save('favsEv', [...S.favsEv]);
     t.classList.toggle('on'); t.textContent = S.favsEv.has(id) ? '★' : '☆'; render(); return;
   }
+  if (t.dataset.radio) { c.radio = +t.dataset.radio; saveCfg(); render(); return; }
   if (t.dataset.marca) { t.classList.toggle('on'); return; }
   if (t.dataset.tarifa) {
     const v = parseFloat(String($('#tarifaIn').value).replace(',', '.'));
@@ -1197,7 +1236,7 @@ document.addEventListener('change', (ev) => {
   if (typeof DEF[k] === 'number') { v = parseFloat(String(v).replace(',', '.')); if (!Number.isFinite(v)) return; }
   c[k] = v; S.limite = 60; saveCfg();
   if (t.dataset.cfg) render();
-  else toast('Guardado');
+  else { toast('Guardado'); if (k === 'fuel') renderChips(); }
 });
 const acCab = autocompletar($('#q'), $('#sug'), irALugar);
 $('#buscar').addEventListener('submit', (ev) => { ev.preventDefault(); acCab.elegirPrimero(); });
@@ -1211,7 +1250,8 @@ $('#sheetBg').addEventListener('click', cerrarHoja);
 })();
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installEvt = e; });
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
+  if (document.visibilityState !== 'visible') { seguirRuta(false); return; }
+  if (S.cfg.vista === 'ruta') seguirRuta(true);
   if (S.pos?.gps !== false) localizar(true);
   if (Date.now() - (S.cargado || 0) > 20 * 60 * 1000) datos();
 });
@@ -1228,7 +1268,7 @@ async function comprobarVersion(manual) {
   try { await swReg.update(); } catch {}
   if (manual && !swReg.installing && !swReg.waiting) setTimeout(() => { if (!$('#upd').classList.contains('on')) toast(`Tienes la última versión (v${APP_VERSION})`); }, 1500);
 }
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if ('serviceWorker' in navigator && isSecureContext) {
   const habiaControlador = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then((r) => { swReg = r; }).catch(() => {});
   // el nuevo service worker toma el control en cuanto se instala: avisamos para recargar
@@ -1250,10 +1290,6 @@ function mostrarNovedades(v) {
     save('version', APP_VERSION);
   }
 })();
-render();
-datos();
-if (!S.pos || S.pos.gps) localizar(true);
-
 // ---------------------------------------------------------------- Tutorial
 const tour = (() => {
   // sel: elemento a iluminar (null = mensaje centrado). antes: prepara la pantalla.
@@ -1509,8 +1545,26 @@ function tarjetaRuta(x, cortes) {
     <div class="sub">${esc(nombreLoc(x.loc))} · ${km(x.kmFalta)} por delante</div><div class="row2">${tags.join('')}</div></div>`;
 }
 let mapaR, capaR;
-function renderRuta() {
+// Mientras la Ruta está abierta, seguir el GPS para ir quitando lo que ya has pasado
+let rutaWatch = null, rutaUlt = null;
+function seguirRuta(activar) {
+  if (!navigator.geolocation) return;
+  if (activar && rutaWatch == null && S.ruta && S.pos?.gps !== false) {
+    rutaWatch = navigator.geolocation.watchPosition((p) => {
+      const n = { lat: p.coords.latitude, lon: p.coords.longitude, gps: true, prec: p.coords.accuracy };
+      // repintar solo si te has movido más de 300 m (ahorra batería y evita parpadeos)
+      if (rutaUlt && dist(rutaUlt.lat, rutaUlt.lon, n.lat, n.lon) < 0.3) return;
+      rutaUlt = n; S.pos = { ...S.pos, ...n, prov: null }; S.geoError = 0;
+      $('#locTxt').textContent = textoPos();
+      if (S.cfg.vista === 'ruta' && !$('#sheet').classList.contains('on')) renderRuta(true);
+    }, () => {}, { enableHighAccuracy: true, maximumAge: 15000, timeout: 30000 });
+  } else if (!activar && rutaWatch != null) {
+    navigator.geolocation.clearWatch(rutaWatch); rutaWatch = null; rutaUlt = null;
+  }
+}
+function renderRuta(soloLista = false) {
   const el = $('#ruta'), c = S.cfg;
+  seguirRuta(!!S.ruta && !S.rutaEditar);
   const ev = c.modo === 'ev';
   if (!S.ruta || S.rutaEditar) {
     const o = S.rutaO || (S.ruta && S.rutaEditar && S.ruta.o.nombre !== 'Mi ubicación' ? S.ruta.o : null);
@@ -1541,10 +1595,11 @@ function renderRuta() {
   const r = S.ruta;
   const res = resultadosRuta();
   const hh = Math.floor(r.min / 60), mm = Math.round(r.min % 60);
-  let h = `<div class="rsum"><div><b>${esc(r.o.nombre)} → ${esc(r.d.nombre)}</b><small>${Math.round(r.km)} km · ${hh ? hh + ' h ' : ''}${mm} min${progresoEnRuta() > 1 ? ` · llevas ${Math.round(progresoEnRuta())} km` : ''}</small></div>
+  const resumenTxt = `${Math.round(r.km)} km · ${hh ? hh + ' h ' : ''}${mm} min${progresoEnRuta() > 1 ? ` · llevas ${Math.round(progresoEnRuta())} km` : ''}`;
+  const cab = `<div class="rsum"><div><b>${esc(r.o.nombre)} → ${esc(r.d.nombre)}</b><small id="rutaResumen">${resumenTxt}</small></div>
     <button class="btn alt" id="rutaCambiar">Cambiar</button></div>
-    <div id="mapaRuta"></div>
-    <div class="chips rchips">
+    <div id="mapaRuta"></div>`;
+  let h = `<div class="chips rchips">
       ${chipSel('rutaOrden', '', c.rutaOrden, [['total', 'Lo que más compensa'], ['km', 'En orden de paso'], ['precio', 'Más barata']])}
       ${chipSel('rutaDesvio', 'Desvío ≤ ', c.rutaDesvio, [2, 5, 10, 15].map((n) => [n, n + ' min']))}
       ${chipSel('rutaKm', 'Parar en ', c.rutaKm, [[0, 'todo el viaje'], [50, '50 km'], [100, '100 km'], [150, '150 km'], [200, '200 km'], [300, '300 km']])}
@@ -1556,19 +1611,26 @@ function renderRuta() {
     else {
       const media = res.reduce((a, x) => a + x.precio, 0) / res.length;
       const ahorro = ((media - mejor.precio) / 1000) * c.litros;
-      h += `<div class="banner"><b>Te compensa: ${esc(nombreMarca(marca(mejor.rot)))} en el km ${Math.round(mejor.along)}</b> · ${pr(mejor.precio)} €/L<small>Desvío ${mejor.perp < 0.05 ? 'nulo' : minTxt(mejor.desvio)} · llegas sobre las ${mejor.eta.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}${ahorro > 0.3 ? ` · ${eur(ahorro)} menos que la media de la ruta llenando ${c.litros} L` : ''} <button data-est="${mejor.id}">Ver</button></small><small>${res.length} ${ev ? 'cargadores' : 'gasolineras'} a ≤ ${c.rutaDesvio} min de desvío</small></div>`;
+      h += `<div class="banner"><b>Te compensa: ${esc(nombreMarca(marca(mejor.rot)))} en el km ${Math.round(mejor.along)}</b> · ${pr(mejor.precio)} €/L<small>Desvío ${mejor.perp < 0.05 ? 'nulo' : minTxt(mejor.desvio)} · llegas sobre las ${mejor.eta.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}${ahorro > 0.3 ? ` · ${eur(ahorro)} menos que la media de la ruta llenando ${c.litros} L` : ''} <button data-est="${mejor.id}">Ver</button></small><small>${res.length} ${res.length === 1 ? 'gasolinera' : 'gasolineras'} a ≤ ${c.rutaDesvio} min de desvío</small></div>`;
     }
     const cortes = ev ? null : cortesDe(res);
     h += '<div class="lista" style="padding:8px 0">' + res.slice(0, S.limite).map((x) => tarjetaRuta(x, cortes)).join('') + '</div>';
     if (res.length > S.limite) h += `<button class="more" id="mas">Ver más (${res.length - S.limite})</button>`;
   }
-  el.innerHTML = h;
+  // con el GPS en marcha solo se actualiza la lista: el mapa conserva tu zoom
+  const parcial = soloLista && mapaR && $('#mapaRuta') && $('#rutaCuerpo');
+  if (parcial) { $('#rutaCuerpo').innerHTML = h; $('#rutaResumen').textContent = resumenTxt; }
+  else el.innerHTML = cab + `<div id="rutaCuerpo">${h}</div>`;
   // mapa de la ruta
-  if (mapaR) { mapaR.remove(); mapaR = null; }
-  mapaR = L.map('mapaRuta', { zoomControl: false, attributionControl: true });
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(mapaR);
-  const linea = L.polyline(r.pts.map((p) => [p[0], p[1]]), { color: ev ? '#2563eb' : '#0f766e', weight: 5, opacity: 0.8 }).addTo(mapaR);
-  capaR = L.layerGroup().addTo(mapaR);
+  if (!parcial) {
+    if (mapaR) { mapaR.remove(); mapaR = null; }
+    mapaR = L.map('mapaRuta', { zoomControl: false, attributionControl: true });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(mapaR);
+    const linea = L.polyline(r.pts.map((p) => [p[0], p[1]]), { color: ev ? '#2563eb' : '#0f766e', weight: 5, opacity: 0.8 }).addTo(mapaR);
+    capaR = L.layerGroup().addTo(mapaR);
+    setTimeout(() => { mapaR.invalidateSize(); mapaR.fitBounds(linea.getBounds(), { padding: [16, 16] }); }, 30);
+  }
+  capaR.clearLayers();
   const cortes = ev ? null : cortesDe(res);
   // solo las mejores en el mapa para que se lea bien
   for (const x of res.slice(0, 25)) {
@@ -1576,6 +1638,11 @@ function renderRuta() {
     L.marker([x.lat, x.lon], { icon: L.divIcon({ className: '', html, iconSize: [0, 0] }) }).on('click', () => (ev ? detalleEv(x.id, true) : detalle(x.id, true))).addTo(capaR);
   }
   L.marker([r.d.lat, r.d.lon], { icon: L.divIcon({ className: '', html: '<div class="pin">🏁</div>', iconSize: [0, 0] }) }).addTo(capaR);
-  if (S.pos) L.marker([S.pos.lat, S.pos.lon], { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }) }).addTo(capaR);
-  setTimeout(() => { mapaR.invalidateSize(); mapaR.fitBounds(linea.getBounds(), { padding: [16, 16] }); }, 30);
+  if (S.pos) L.marker([S.pos.lat, S.pos.lon], { icon: L.divIcon({ className: '', html: '<div class="me"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }), zIndexOffset: 1000 }).addTo(capaR);
 }
+
+// ---------------------------------------------------------------- Arranque
+// Al final del archivo: así todo (ruta, tutorial…) está definido antes de pintar por primera vez
+render();
+datos();
+if (!S.pos || S.pos.gps) localizar(true);

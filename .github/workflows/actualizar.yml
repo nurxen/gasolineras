@@ -21,18 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Recuperar historial (rama data)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         continue-on-error: true
         with:
           ref: data
           path: .datos
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Descargar precios oficiales (MITECO)
         run: node scripts/build-data.mjs --out app/data --hist .datos
@@ -53,8 +53,8 @@ jobs:
       - name: Versión de la caché offline
         run: sed -i "s/__VERSION__/${GITHUB_SHA::8}/" app/sw.js
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: app
 
@@ -66,4 +66,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

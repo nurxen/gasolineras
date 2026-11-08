@@ -258,3 +258,11 @@ body.ev .refresh { color: var(--ev); }
 
 .veredicto .lnk { text-decoration: underline; font-weight: 750; color: inherit; padding: 0; }
 .box h3 small { font-weight: 500; }
+
+/* ---------- v1.5 ---------- */
+/* iOS hace zoom en campos con letra < 16 px */
+@media (hover: none) and (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+}
+.geoaviso + .geoaviso { margin-top: 6px; }
+.field select { width: auto; min-width: 110px; max-width: 62%; }
