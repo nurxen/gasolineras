@@ -207,3 +207,14 @@ body.ev .refresh { color: var(--ev); }
 .share { width: 100%; margin: -4px 0 8px; padding: 9px; }
 .novedades { padding-left: 4px; list-style: none; margin: 8px 0 16px; }
 .novedades li { padding: 9px 0; border-bottom: 1px solid var(--line); line-height: 1.45; }
+
+/* ---------- Tutorial ---------- */
+.tour { position: fixed; inset: 0; z-index: 2000; }
+.tour-foco { position: fixed; border-radius: 14px; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.66), 0 0 0 3px var(--acc-2) inset; transition: all 0.3s ease; pointer-events: none; }
+.tour-caja { position: fixed; background: var(--card); color: var(--ink); border-radius: 16px; padding: 14px 16px 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35); width: min(380px, calc(100vw - 24px)); transition: top 0.3s ease, left 0.3s ease; }
+.tour-t { font-weight: 800; font-size: 17px; margin-bottom: 6px; }
+.tour-x { font-size: 14.5px; line-height: 1.5; }
+.tour-pie { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.tour-n { color: var(--muted); font-size: 12.5px; margin-right: auto; font-variant-numeric: tabular-nums; }
+.tour-saltar { color: var(--muted); font-weight: 600; padding: 8px; }
+.tour-pie .btn { padding: 9px 14px; }

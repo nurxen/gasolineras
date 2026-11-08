@@ -3,8 +3,11 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const NOVEDADES = {
+  '1.2.0': [
+    '🧭 <b>Tutorial</b> de bienvenida que te enseña dónde está cada cosa. Puedes repetirlo cuando quieras desde <b>Ajustes → Ver tutorial</b>.',
+  ],
   '1.1.0': [
     '🔄 Aviso de <b>nueva versión</b>: cuando publiques cambios en GitHub, la app te lo dirá y se actualiza con un toque.',
     '📉 <b>Subidas y bajadas</b>: cada gasolinera muestra si su precio ha subido o bajado desde ayer (aparece a partir del segundo día de historial).',
@@ -758,7 +761,7 @@ function renderAjustes() {
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn" id="guardarLc">Guardar</button><button class="btn alt" id="resetLc">Restaurar lista</button></div>
     <h2>🔄 Versión</h2>
     <div class="box"><div class="kv"><span>GasoCerca</span><span><b>v${APP_VERSION}</b></span></div>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="buscarAct">Buscar actualizaciones</button><button class="btn alt" id="verNovedades">Novedades</button></div></div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="buscarAct">Buscar actualizaciones</button><button class="btn alt" id="verNovedades">Novedades</button><button class="btn alt" id="verTour">Ver tutorial</button></div></div>
     <h2>ℹ️ Datos</h2>
     <div class="box"><div class="kv"><span>Precios</span><span>${esc(S.fecha || '—')}</span></div>
     <div class="kv"><span>Gasolineras</span><span>${S.est.length.toLocaleString('es-ES')}</span></div>
@@ -833,6 +836,7 @@ document.addEventListener('click', (ev) => {
     case 'resetLc': c.lowcostList = LOWCOST_DEF; saveCfg(); render(); break;
     case 'directo': datos(true); break;
     case 'verNovedades': mostrarNovedades(APP_VERSION); break;
+    case 'verTour': tour.iniciar(); break;
     case 'instalar': S.installEvt?.prompt(); S.installEvt = null; break;
     case 'borrar': if (confirm('¿Borrar ajustes y favoritas?')) { Object.keys(localStorage).filter((k) => k.startsWith('gc.')).forEach((k) => localStorage.removeItem(k)); location.reload(); } break;
   }
@@ -892,10 +896,102 @@ function mostrarNovedades(v) {
   const anterior = load('version', null);
   if (anterior !== APP_VERSION) {
     // usuarios que ya tenían la app (tienen ajustes guardados) ven las novedades
-    if (anterior || localStorage.getItem('gc.cfg')) setTimeout(() => mostrarNovedades(APP_VERSION), 1200);
+    // el tutorial tiene prioridad: quien no lo ha visto lo ve una vez (también al actualizar)
+    if ((anterior || localStorage.getItem('gc.cfg')) && load('tourVisto', false)) setTimeout(() => mostrarNovedades(APP_VERSION), 1200);
     save('version', APP_VERSION);
   }
 })();
 render();
 datos();
 if (!S.pos || S.pos.gps) localizar(true);
+
+// ---------------------------------------------------------------- Tutorial
+const tour = (() => {
+  // sel: elemento a iluminar (null = mensaje centrado). antes: prepara la pantalla.
+  const PASOS = [
+    { sel: null, t: '👋 ¡Bienvenido a GasoCerca!', x: 'Te enseño en un minuto dónde está cada cosa. Puedes saltarlo y repetirlo cuando quieras desde <b>Ajustes</b>.' },
+    { sel: '.seg', t: '⛽ Combustible o ⚡ Recarga', x: 'Cambia entre las <b>gasolineras</b> (para el híbrido) y los <b>puntos de recarga</b> (para el eléctrico). Toda la app se adapta al modo elegido.' },
+    { sel: '#btnLoc', t: '📍 Tu ubicación', x: 'La app usa tu GPS al abrirse. Toca aquí para volver a localizarte si te has movido.' },
+    { sel: '#buscar', t: '🔎 Buscar otro sitio', x: 'Escribe un <b>pueblo</b> o un <b>código postal</b> para ver los precios de otra zona, por ejemplo antes de un viaje.' },
+    { sel: '#refrescar', t: '↻ Actualizar', x: 'Recarga tu ubicación y los últimos precios. Los precios oficiales se actualizan cada 30 minutos.' },
+    { sel: 'select[data-cfg=fuel]', up: '.chip', t: '⛽ Combustible', x: 'Elige qué combustible quieres comparar: gasolina 95, 98, diésel, GLP… Las tarjetas se ordenan y colorean según este precio.' },
+    { sel: 'select[data-cfg=radio]', up: '.chip', t: '📏 Distancia', x: 'Hasta cuántos kilómetros buscar: desde 1 km hasta 50 km.' },
+    { sel: 'select[data-cfg=orden]', up: '.chip', t: '↕️ Orden', x: '<b>Más barata</b>, <b>más cerca</b> o <b>coste real</b>: suma el depósito y lo que gastas en ir y volver. Así sabes si compensa ir más lejos.' },
+    { sel: '[data-tog=lowcost]', t: '💰 Filtros rápidos', x: '<b>Low cost</b> muestra solo las marcas baratas, <b>Abiertas</b> quita las cerradas ahora mismo y <b>Marcas</b> te deja elegir las tuyas. Desliza la fila hacia la izquierda para verlos todos.' },
+    { sel: '#banner .banner', t: '⭐ La mejor opción', x: 'Aquí te digo cuál te conviene más y cuánto ahorras frente a la gasolinera más cercana, contando el desplazamiento.' },
+    { sel: '#lista .card', t: '🏷️ Cada gasolinera', x: 'El precio sale en <b style="color:var(--ok)">verde</b> si es barato, en <b style="color:var(--mid)">ámbar</b> si es normal y en <b style="color:var(--bad)">rojo</b> si es caro. <b>▼▲</b> indica si ha bajado o subido desde ayer.<br><br><b>Tócala</b> para ver todos los precios, ir con Google Maps o Waze, guardarla en ★ favoritas, compartirla o usar la calculadora.' },
+    { sel: '.bottom [data-v=mapa]', t: '🗺️ Mapa', x: 'Todas las gasolineras con su precio sobre el mapa. Toca una etiqueta para ver los detalles.' },
+    { sel: '.bottom [data-v=favs]', t: '★ Favoritas', x: 'Las gasolineras y cargadores que guardes, con su precio actual, estés donde estés.' },
+    { sel: '.bottom [data-v=tend]', t: '📈 Tendencia', x: 'Cómo evolucionan los precios en tu provincia, si es <b>buen momento para repostar</b> y cuánto te cuesta cada coche por 100 km.' },
+    { sel: '.bottom [data-v=ajustes]', t: '⚙️ Ajustes', x: 'Pon los datos de tus coches (litros, consumo, batería, conectores…), edita la lista de marcas low cost y busca actualizaciones.' },
+    { sel: null, t: '🚀 ¡Listo!', x: 'Consejo: <b>añádela a la pantalla de inicio</b> para abrirla como una app más.<br>• iPhone: <b>Compartir → Añadir a pantalla de inicio</b>.<br>• Android: menú <b>⋮ → Instalar aplicación</b>.<br><br>Puedes repetir este tutorial en <b>Ajustes → Ver tutorial</b>.' },
+  ];
+  let i = 0, capa, foco, caja;
+
+  function crear() {
+    capa = document.createElement('div'); capa.className = 'tour';
+    capa.innerHTML = '<div class="tour-foco"></div><div class="tour-caja" role="dialog" aria-live="polite"></div>';
+    document.body.appendChild(capa);
+    foco = capa.querySelector('.tour-foco'); caja = capa.querySelector('.tour-caja');
+    capa.addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.t === 'sig') ir(i + 1);
+      if (b.dataset.t === 'ant') ir(i - 1);
+      if (b.dataset.t === 'fin') cerrar();
+    });
+    window.addEventListener('resize', () => capa && pintar());
+  }
+  function objetivo(p) {
+    if (!p.sel) return null;
+    let el = document.querySelector(p.sel);
+    if (el && p.up) el = el.closest(p.up) || el;
+    if (!el || !el.offsetParent) return null;
+    return el;
+  }
+  function ir(n) {
+    if (n >= PASOS.length) return cerrar();
+    i = Math.max(0, n);
+    const el = objetivo(PASOS[i]);
+    // si el elemento no existe (por ejemplo, aún sin ubicación) se salta, salvo los mensajes centrados
+    if (PASOS[i].sel && !el) return ir(n >= i ? i + 1 : i - 1);
+    if (el) el.scrollIntoView({ block: 'nearest', inline: 'center' });
+    setTimeout(pintar, el ? 250 : 0);
+  }
+  function pintar() {
+    const p = PASOS[i], el = objetivo(p);
+    const ultimo = i === PASOS.length - 1;
+    caja.innerHTML = `<div class="tour-t">${p.t}</div><div class="tour-x">${p.x}</div>
+      <div class="tour-pie"><span class="tour-n">${i + 1} / ${PASOS.length}</span>
+      ${ultimo ? '' : '<button data-t="fin" class="tour-saltar">Saltar</button>'}
+      ${i > 0 ? '<button data-t="ant" class="btn alt">‹</button>' : ''}
+      <button data-t="sig" class="btn">${ultimo ? '¡Empezar!' : i === 0 ? 'Empezar' : 'Siguiente ›'}</button></div>`;
+    const W = innerWidth, H = innerHeight;
+    if (!el) {
+      foco.style.cssText = `left:${W / 2}px;top:${H / 2}px;width:0;height:0`;
+      caja.style.cssText = `left:50%;top:50%;transform:translate(-50%,-50%)`;
+      return;
+    }
+    const r = el.getBoundingClientRect(), m = 6;
+    foco.style.cssText = `left:${r.left - m}px;top:${r.top - m}px;width:${r.width + m * 2}px;height:${r.height + m * 2}px`;
+    const cw = Math.min(380, W - 24), ch = caja.offsetHeight;
+    const left = Math.min(Math.max(12, r.left + r.width / 2 - cw / 2), W - cw - 12);
+    const abajo = r.top + r.height / 2 < H / 2;
+    const top = abajo ? Math.min(r.bottom + 16, H - ch - 12) : Math.max(12, r.top - ch - 16);
+    caja.style.cssText = `left:${left}px;top:${top}px;width:${cw}px`;
+  }
+  function cerrar() {
+    capa?.remove(); capa = null;
+    $('#chips').scrollTo({ left: 0, behavior: 'smooth' });
+    save('tourVisto', true);
+  }
+  function iniciar() {
+    cerrarHoja();
+    // el tutorial se hace sobre la lista de gasolineras
+    S.cfg.modo = 'fuel'; S.cfg.vista = 'lista'; saveCfg(); render();
+    $('#v-lista').scrollTop = 0;
+    if (!capa) crear();
+    ir(0);
+  }
+  return { iniciar };
+})();
+if (!load('tourVisto', false)) setTimeout(() => { if (!$('#sheet').classList.contains('on')) tour.iniciar(); }, 1500);
