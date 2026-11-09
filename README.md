@@ -15,12 +15,20 @@ Sin servidores de pago ni anuncios: todo se aloja gratis en **GitHub Pages**, y 
 - **Favoritas** (gasolineras y cargadores) y **navegación** con Google Maps, Waze o Apple Maps.
 - **Historial**: gráfica de 90 días por gasolinera, media de tu provincia, aviso de si es buen momento para repostar y el día de la semana más barato.
 - **Lo que más compensa**: tiene en cuenta el combustible del trayecto y **tu tiempo** (€/hora configurable), para no mandarte lejos por ahorrar 1 €.
-- **Modo recarga ⚡**: puntos de recarga filtrados por conector (CCS2 y Tipo 2 para el Leapmotor T03), potencia y gratuitos, con **tiempo estimado del 10 % al 80 %** y coste.
+- **Modo recarga ⚡**: puntos de recarga filtrados por conector (CCS2, Tipo 2, CHAdeMO…), potencia y gratuitos, con **tiempo estimado del 10 % al 80 %** y coste.
   Los operadores no publican sus tarifas en abierto (solo se ven en el mapa oficial [Reve](https://www.mapareve.es)), así que el precio es **tu tarifa** si la guardas, el de OpenStreetMap si lo hay o una estimación por tipo de cargador.
 - **Diario de repostajes y recargas**: gasto mensual, ahorro frente a la media de la zona y consumo real de cada coche.
 - **Alertas de precio** en tus favoritas y **copia de seguridad** de tus datos.
 - **Comparativa** del coste por 100 km entre el híbrido y el eléctrico.
 - Funciona **sin conexión** con los últimos datos descargados.
+
+## Compartirla con otras personas
+
+Basta con mandar el enlace de la app (`https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/`). Es **gratis** y **no hay cuentas**:
+
+- La primera vez que alguien la abre, un **asistente** le pregunta su combustible, cuánto reposta, su consumo, cuánto vale su tiempo y, si quiere, los datos de su coche eléctrico (es opcional).
+- Todo se guarda **solo en su móvil**. Nadie ve los datos de nadie, y en GitHub solo están los precios públicos.
+- Cada uno puede cambiarlo después en **Ajustes** o repetir el asistente con **Volver a configurar**.
 
 ## Publicarla (una sola vez, unos 5 minutos)
 
