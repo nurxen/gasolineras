@@ -306,3 +306,46 @@ body.ev .refresh { color: var(--ev); }
 .adots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
 .adots i.on { background: var(--acc); }
 .apie .btn { padding: 11px 16px; }
+
+/* ---------- v1.8: modo sencillo, letra grande, ayuda ---------- */
+body.sencillo .bottom [data-v=tend] { display: none; }
+.ayudaBtn { width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--line); color: var(--acc); font-weight: 800; font-size: 14px; margin-left: 2px; flex: none; }
+.ir { margin-left: auto; background: var(--acc); color: var(--acc-ink); padding: 6px 14px; border-radius: 999px; font-weight: 750; font-size: 14px; text-decoration: none; }
+.btn-ir { display: block; text-align: center; background: var(--acc); color: var(--acc-ink); padding: 12px; border-radius: 14px; font-weight: 800; text-decoration: none; }
+.btn-ir.grande { font-size: 18px; padding: 15px; margin: 12px 0 10px; }
+body.ev .btn-ir, body.ev .ir { background: var(--ev); color: #fff; }
+.bduo { display: flex; gap: 8px; margin-top: 10px; }
+.banner .btn-ir { flex: 1.3; background: #fff; color: #0f766e; padding: 10px; }
+body.ev .banner .btn-ir { background: #fff; color: #2563eb; }
+.btn-ver { flex: 1; border: 1.5px solid rgba(255, 255, 255, 0.7); border-radius: 14px; padding: 10px; font-weight: 700; color: inherit; }
+.pgrande { text-align: center; background: var(--bg); border: 1px solid var(--line); border-radius: 16px; padding: 12px; margin: 6px 0 4px; }
+.pgrande span { display: block; color: var(--muted); font-size: 14px; }
+.pgrande b { display: block; font-size: 36px; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+.pgrande small { color: var(--muted); }
+details.mas { margin: 12px 0; }
+details.mas > summary { list-style: none; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; font-weight: 700; color: var(--acc); cursor: pointer; background: var(--card); }
+details.mas > summary::-webkit-details-marker { display: none; }
+details.mas > summary::after { content: ' ▾'; }
+details.mas[open] > summary { margin-bottom: 10px; }
+details.mas[open] > summary::after { content: ' ▴'; }
+.modoapp { width: 100%; }
+.modoapp button { flex: 1; padding: 10px; font-size: 15px; }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { padding: 13px 2px; font-weight: 700; cursor: pointer; font-size: 15.5px; }
+.faq p { margin: 0 0 12px; line-height: 1.5; color: var(--ink); }
+.faq .lnk { text-decoration: underline; font-weight: 700; color: var(--acc); padding: 0; }
+/* letra grande */
+body.grande { font-size: 17px; }
+body.grande .card .nm { font-size: 18.5px; }
+body.grande .card .sub { font-size: 15px; }
+body.grande .tag { font-size: 14px; }
+body.grande .price { font-size: 25px; }
+body.grande .chip, body.grande .seg button { font-size: 15.5px; }
+body.grande .banner b { font-size: 18px; }
+body.grande .banner small { font-size: 15px; }
+body.grande .bottom button { font-size: 12.5px; }
+body.grande .bottom button i { font-size: 23px; }
+body.grande .sheet, body.grande .box .kv, body.grande .muted { font-size: 15.5px; }
+body.grande .ir { font-size: 16px; padding: 8px 16px; }
+.field input[type="text"]:not([inputmode]) { width: 55%; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); text-align: right; }
+.top .seg[hidden] { display: none; }

@@ -3,8 +3,14 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 const NOVEDADES = {
+  '1.8.0': [
+    '😊 <b>Modo sencillo</b> para quien empieza: solo lo importante (precios cerca, un botón grande para ir y favoritas). Tú sigues con el <b>modo completo</b>; puedes cambiarlo en Ajustes.',
+    '🧭 Botón <b>«Ir»</b> en cada gasolinera para que el móvil te lleve directamente.',
+    '🔍 Opción de <b>letra grande</b> en Ajustes.',
+    '❓ Botón de <b>ayuda</b> arriba con las dudas más habituales explicadas fácil.',
+  ],
   '1.7.0': [
     '👋 <b>Lista para compartir</b>: quien abra la app por primera vez verá un <b>asistente</b> que le pregunta su combustible, cuánto reposta, su consumo, cuánto vale su tiempo y, solo si quiere, los datos de su coche eléctrico. Tus ajustes no cambian.',
     '🚗 El coche eléctrico es <b>opcional</b>: si alguien no tiene, no verá nada de recarga. Lo puede activar después en Ajustes.',
@@ -87,6 +93,7 @@ const DEF = {
   velMedia: 25, valorHora: 10, // para valorar el tiempo del desplazamiento
   litros: 40, consumo: 6, // coche de combustión
   tieneComb: true, tieneEV: false, combNombre: '', setupHecho: false,
+  sencillo: true, letraGrande: false, // modo sencillo por defecto para quien empieza
   evRadio: 10, conectores: ['ccs', 't2', 't2c'], potMin: 0, gratis: false, evOrden: 'dist', sinDatos: true,
   evModelo: '', bat: 50, acKw: 7.4, dcKw: 50, evConsumo: 15, kwhCasa: 0.15,
   kwhAC: 0.39, kwhDC: 0.49, kwhHPC: 0.59, tarifas: {}, // €/kWh orientativos por tipo de cargador y tarifas propias
@@ -116,11 +123,18 @@ const saveCfg = () => save('cfg', S.cfg);
   if ((guardado || localStorage.getItem('gc.version')) && !('tieneEV' in (guardado || {}))) {
     const ANTES = { evModelo: 'Leapmotor T03', bat: 37.3, acKw: 6.6, dcKw: 48, evConsumo: 13.5, consumo: 5 };
     for (const [k, v] of Object.entries(ANTES)) if (!guardado || !(k in guardado)) S.cfg[k] = v;
-    Object.assign(S.cfg, { tieneEV: true, tieneComb: true, setupHecho: true });
+    Object.assign(S.cfg, { tieneEV: true, tieneComb: true, setupHecho: true, sencillo: false });
     saveCfg();
   }
 })();
+(() => {
+  // quien ya tenía la app conserva lo que conoce: modo completo
+  const g = load('cfg', null);
+  if (g && !('sencillo' in g)) { S.cfg.sencillo = false; saveCfg(); }
+})();
 const nombreEV = () => S.cfg.evModelo || 'eléctrico';
+// enlace para que el móvil te lleve: Apple Maps en iPhone, Google Maps en el resto
+const irURL = (lat, lon) => (/iphone|ipad|ipod/i.test(navigator.userAgent) ? `https://maps.apple.com/?daddr=${lat},${lon}&dirflg=d` : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`);
 const nombreComb = () => S.cfg.combNombre || 'Coche';
 
 // ---------------------------------------------------------------- Utilidades
@@ -514,7 +528,7 @@ function cercanas() {
   }
   const todas = arr;
   if (c.lowcost) arr = arr.filter(esLowcost);
-  if (c.abiertas) arr = arr.filter((e) => horarioHoy(e.hor, ahora) !== false);
+  if (c.abiertas || c.sencillo) arr = arr.filter((e) => horarioHoy(e.hor, ahora) !== false);
   if (c.marcas.length) arr = arr.filter((e) => c.marcas.includes(marca(e.rot)));
   for (const e of arr) e.total = coste(e);
   const ord = { precio: (a, b) => a.precio - b.precio || a.d - b.d, dist: (a, b) => a.d - b.d, total: (a, b) => a.total.total - b.total.total };
@@ -613,7 +627,11 @@ const durTxt = (h) => (h < 1 ? Math.round(h * 60) + ' min' : Math.floor(h) + ' h
 // ---------------------------------------------------------------- Render
 function render() {
   if (!S.cfg.tieneEV && S.cfg.modo === 'ev') S.cfg.modo = 'fuel';
+  if (S.cfg.sencillo && S.cfg.vista === 'tend') S.cfg.vista = 'lista';
+  document.body.classList.toggle('sencillo', !!S.cfg.sencillo);
+  document.body.classList.toggle('grande', !!S.cfg.letraGrande);
   $('.seg [data-modo=ev]').hidden = !S.cfg.tieneEV;
+  $('.top .seg').hidden = !S.cfg.tieneEV || !S.cfg.tieneComb; // con un solo coche no hace falta elegir modo
   document.body.classList.toggle('ev', S.cfg.modo === 'ev');
   document.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', b.dataset.modo === S.cfg.modo));
   document.querySelectorAll('.bottom button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.cfg.vista));
@@ -643,16 +661,18 @@ function renderChips() {
   if (c.modo === 'fuel') {
     h += chipSel('fuel', '', c.fuel, Object.keys(FUEL_NAMES).map((k) => [k, FUEL_NAMES[k]]));
     if (!enRuta) h += chipSel('radio', '≤ ', c.radio, [1, 2, 3, 5, 10, 15, 25, 50].map((n) => [n, n + ' km']));
-    if (!enRuta) h += chipSel('orden', '', c.orden, [['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['dist', 'Más cerca']]);
-    h += `<button class="chip ${c.lowcost ? 'on' : ''}" data-tog="lowcost">💰 Low cost</button>`;
-    h += `<button class="chip ${c.abiertas ? 'on' : ''}" data-tog="abiertas">🕐 Abiertas</button>`;
-    h += `<button class="chip ${c.marcas.length ? 'on' : ''}" id="chipMarcas">🏷️ Marcas${c.marcas.length ? ' (' + c.marcas.length + ')' : ''}</button>`;
+    if (!enRuta && !c.sencillo) h += chipSel('orden', '', c.orden, [['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['dist', 'Más cerca']]);
+    if (!c.sencillo) {
+      h += `<button class="chip ${c.lowcost ? 'on' : ''}" data-tog="lowcost">💰 Low cost</button>`;
+      h += `<button class="chip ${c.abiertas ? 'on' : ''}" data-tog="abiertas">🕐 Abiertas</button>`;
+      h += `<button class="chip ${c.marcas.length ? 'on' : ''}" id="chipMarcas">🏷️ Marcas${c.marcas.length ? ' (' + c.marcas.length + ')' : ''}</button>`;
+    }
   } else {
     if (!enRuta) h += chipSel('evRadio', '≤ ', c.evRadio, [2, 5, 10, 15, 25, 50].map((n) => [n, n + ' km']));
-    h += chipSel('potMin', '', c.potMin, [[0, 'Cualquier potencia'], [7, '≥ 7 kW'], [22, '≥ 22 kW'], [50, '≥ 50 kW (rápida)'], [100, '≥ 100 kW']]);
-    if (!enRuta) h += chipSel('evOrden', '', c.evOrden, [['dist', 'Más cerca'], ['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['kw', 'Más potente']]);
-    h += `<button class="chip on" id="chipConect">🔌 ${c.conectores.filter((x) => x !== 't2c').map((x) => SOCKET_NAMES[x]).join(' + ') || 'Conector'}</button>`;
-    h += `<button class="chip ${c.gratis ? 'on' : ''}" data-tog="gratis">🆓 Gratis</button>`;
+    if (!c.sencillo) h += chipSel('potMin', '', c.potMin, [[0, 'Cualquier potencia'], [7, '≥ 7 kW'], [22, '≥ 22 kW'], [50, '≥ 50 kW (rápida)'], [100, '≥ 100 kW']]);
+    if (!enRuta && !c.sencillo) h += chipSel('evOrden', '', c.evOrden, [['dist', 'Más cerca'], ['total', 'Lo que más compensa'], ['precio', 'Más barata'], ['kw', 'Más potente']]);
+    if (!c.sencillo) h += `<button class="chip on" id="chipConect">🔌 ${c.conectores.filter((x) => x !== 't2c').map((x) => SOCKET_NAMES[x]).join(' + ') || 'Conector'}</button>`;
+    if (!c.sencillo) h += `<button class="chip ${c.gratis ? 'on' : ''}" data-tog="gratis">🆓 Gratis</button>`;
   }
   const ch = $('#chips'), sl = ch.scrollLeft;
   ch.innerHTML = h;
@@ -687,6 +707,7 @@ function minutosDatos() {
 }
 function avisoDatos() {
   const h = minutosDatos() / 60;
+  if (h > 8 && S.cfg.sencillo) return `<div class="geoaviso">⏰ Estos precios son de ${haceCuanto()} y pueden haber cambiado. <button id="directo">Actualizar precios</button></div>`;
   return h > 8 ? `<div class="geoaviso">⏰ Los precios son de ${haceCuanto()}. Puede que las actualizaciones automáticas de GitHub estén pausadas: entra en la pestaña <b>Actions</b> del repositorio y pulsa <b>Enable workflow</b>. <button id="directo">Descargar ahora del Ministerio</button></div>` : '';
 }
 function haceCuanto() {
@@ -698,6 +719,14 @@ function haceCuanto() {
 
 function tarjeta(e, cortes, ahora = new Date()) {
   const ab = horarioHoy(e.hor, ahora);
+  if (S.cfg.sencillo) {
+    return `<div class="card" data-est="${e.id}">
+    <div class="nm">${S.favs.has(e.id) ? '<span class="star">★</span>' : ''}<span class="t">${esc(nombreMarca(marca(e.rot)) === 'Sin marca' ? titulo(e.rot) || 'Gasolinera' : nombreMarca(marca(e.rot)))}</span></div>
+    <div class="big"><span class="price ${claseP(e.precio, cortes)}">${pr(e.precio)}<small> €</small></span><span class="lbl">${FUEL_NAMES[S.cfg.fuel]}</span></div>
+    <div class="sub">${esc(titulo(e.dir))}, ${esc(nombreLoc(e.loc))}</div>
+    <div class="row2"><span class="tag">a <b>${km(e.d)}</b> · ${minTxt(minutosIda(e.d))} en coche</span>${/24\s*H/i.test(e.hor) ? '<span class="tag op">Abierta 24 h</span>' : ''}<a class="ir" href="${irURL(e.lat, e.lon)}" target="_blank" rel="noopener">🧭 Ir</a></div>
+  </div>`;
+  }
   const otro = ES_GASOLINA(S.cfg.fuel) ? 'dsl' : 'g95';
   const extras = [];
   extras.push(`<span class="tag"><b>${km(e.d)}</b> · ${minTxt(minutosIda(e.d))}</span>`);
@@ -751,6 +780,11 @@ function renderLista() {
     const v = veredicto(mejor, cerca);
     b = `<b>Te compensa: ${nom(mejor)} a ${km(mejor.d)}</b> · ${pr(mejor.precio)} €/L<small>Ahorras ${eur(Math.max(0, v.ahorro))} frente a la más cercana${v.extra >= 1 ? ` y son ${minTxt(v.extra)} más de trayecto (ida y vuelta)` : ''}. <button data-est="${mejor.id}">Ver</button></small>`;
   }
+  if (c.sencillo) {
+    const v = veredicto(mejor, cerca);
+    b = `<b>👍 Te recomendamos: ${nom(mejor)}</b><small>${pr(mejor.precio)} € el litro · a ${km(mejor.d)} (${minTxt(minutosIda(mejor.d))})${v && v.ahorro > 0.5 ? ` · ahorras ${eur(v.ahorro)} frente a la más cercana` : ''}</small>
+      <div class="bduo"><a class="btn-ir" href="${irURL(mejor.lat, mejor.lon)}" target="_blank" rel="noopener">🧭 Llévame</a><button class="btn-ver" data-est="${mejor.id}">Ver detalles</button></div>`;
+  } else
   b += `<small>${lista.length} ${lista.length === 1 ? 'gasolinera' : 'gasolineras'} · media ${pr(media)} €/L · precios ${haceCuanto()}${c.valorHora ? ` · tu tiempo: ${c.valorHora} €/h` : ''}</small>`;
   const sigRadio = [1, 2, 3, 5, 10, 15, 25, 50].find((n) => n > c.radio);
   const ampliar = lista.length < 4 && sigRadio && !c.lowcost && !c.marcas.length
@@ -765,6 +799,15 @@ function renderLista() {
 
 function tarjetaEv(p) {
   const t = p.carga;
+  if (S.cfg.sencillo) {
+    const rapida = p.compat.some((s) => ['ccs', 'chademo', 'tesla'].includes(s[0]));
+    return `<div class="card" data-ev="${p.id}">
+    <div class="nm">${S.favsEv.has(p.id) ? '<span class="star">★</span>' : ''}<span class="t">${esc(p.name || p.op || 'Punto de recarga')}</span></div>
+    <div class="big"><span class="price ${rapida ? 'p-ok' : 'p-mid'}" style="font-size:16px">${rapida ? '⚡ Rápida' : '🔌 Lenta'}</span>${t ? `<span class="lbl">carga en ${durTxt(t.h)}</span>` : ''}</div>
+    <div class="sub">${esc(p.name && p.op ? p.op : '')}${t ? (t.precio === 0 ? ' · Gratis' : ` · ${t.fuente.startsWith('estimado') ? 'unos ' : ''}${eur(t.coste, 0)} la carga`) : ''}</div>
+    <div class="row2"><span class="tag">a <b>${km(p.d)}</b> · ${minTxt(minutosIda(p.d))} en coche</span><a class="ir" href="${irURL(p.lat, p.lon)}" target="_blank" rel="noopener">🧭 Ir</a></div>
+  </div>`;
+  }
   const sk = p.sk.length ? p.sk.map((s) => `<span class="tag ${p.compat.includes(s) ? 'ev' : ''}">${SOCKET_NAMES[s[0]]}${s[1] > 1 ? ' ×' + s[1] : ''}${s[2] ? ' · <b>' + s[2] + ' kW</b>' : ''}</span>`).join('') : '<span class="tag">Conector sin especificar</span>';
   const titulo_ = p.name || p.op || 'Punto de recarga';
   return `<div class="card" data-ev="${p.id}">
@@ -786,7 +829,10 @@ function renderListaEv() {
     const t = mejor.carga;
     bn = `<b>Te compensa: ${esc(mejor.name || mejor.op || 'Punto de recarga')}</b> · ${km(mejor.d)}, ${minTxt(minutosIda(mejor.d))}<small>${t.precio === 0 ? 'Gratis' : (t.fuente.startsWith('estimado') ? '~' : '') + t.precio.toLocaleString('es-ES', { minimumFractionDigits: 2 }) + ' €/kWh · ' + t.fuente} · 10→80 % en ${durTxt(t.h)}${t.coste ? ' por ' + eur(t.coste) : ''} <button data-ev="${mejor.id}">Ver</button></small><small>Cuenta el precio, el trayecto y el tiempo de carga.</small>`;
   }
-  $('#banner').innerHTML = l.length ? `<div class="banner">${bn}<small>${l.length} ${l.length === 1 ? 'punto compatible' : 'puntos compatibles'} con tu ${esc(nombreEV())} · ${rapidos} con CCS2 · ${esc(S.ptsFuente)}</small></div>` : '';
+  if (c.sencillo && mejor) bn = `<b>👍 Te recomendamos: ${esc(mejor.name || mejor.op || 'Punto de recarga')}</b><small>a ${km(mejor.d)} (${minTxt(minutosIda(mejor.d))}) · carga en ${durTxt(mejor.carga.h)}</small>
+      <div class="bduo"><a class="btn-ir" href="${irURL(mejor.lat, mejor.lon)}" target="_blank" rel="noopener">🧭 Llévame</a><button class="btn-ver" data-ev="${mejor.id}">Ver detalles</button></div>`;
+  if (c.sencillo) { $('#banner').innerHTML = l.length ? `<div class="banner">${bn}</div>` : ''; }
+  else $('#banner').innerHTML = l.length ? `<div class="banner">${bn}<small>${l.length} ${l.length === 1 ? 'punto compatible' : 'puntos compatibles'} con tu ${esc(nombreEV())} · ${rapidos} con CCS2 · ${esc(S.ptsFuente)}</small></div>` : '';
   if (!l.length) { $('#lista').innerHTML = `<div class="empty"><b>No hay puntos de recarga con estos filtros</b>Prueba a ampliar la distancia (ahora ${c.evRadio} km) o bajar la potencia mínima.</div>`; return; }
   let h = l.slice(0, S.limite).map(tarjetaEv).join('');
   if (l.length > S.limite) h += `<button class="more" id="mas">Ver más (${l.length - S.limite})</button>`;
@@ -939,10 +985,15 @@ async function detalle(id, enRuta = false) {
       <div class="muted" style="margin-top:6px">Trayecto estimado a ${c.velMedia} km/h de media. Cambia la velocidad, el valor de tu tiempo, los litros y el consumo en Ajustes.</div></div>`;
   }
   const fav = S.favs.has(e.id);
+  const sen = c.sencillo;
+  const principal = sen ? `<div class="pgrande"><span>${esc(FUEL_NAMES[c.fuel])}</span><b>${e.precio ? pr(e.precio) + ' €' : '—'}</b><small>${e.precio ? `el litro · llenar ${c.litros} L: ${eur((e.precio / 1000) * c.litros)}` : 'No vende este combustible'}</small></div>
+    <a class="btn-ir grande" href="${irURL(e.lat, e.lon)}" target="_blank" rel="noopener">🧭 Cómo llegar</a>
+    <div class="duo"><button class="btn alt" data-fav="${e.id}" data-lbl="1">${fav ? '★ En favoritas' : '☆ Guardar en favoritas'}</button><button class="btn alt" data-share="est" data-id="${e.id}">📤 Compartir</button></div>` : '';
   abrirHoja(`<h2><span>${esc(nombreMarca(marca(e.rot)) === 'Sin marca' ? titulo(e.rot) : nombreMarca(marca(e.rot)))}</span><button class="favbtn ${fav ? 'on' : ''}" data-fav="${e.id}" aria-label="Favorita">${fav ? '★' : '☆'}</button></h2>
     <p class="addr">${esc(titulo(e.dir))}, ${esc(nombreLoc(e.loc))} · ${r ? `km ${Math.round(r.along)} de tu ruta (${km(r.kmFalta)} por delante)` : km(d)}<br>
     ${ab === true ? `<span class="down">● Abierta ${r ? 'cuando llegues (' + hLleg + ')' : 'ahora'}</span>` : ab === false ? `<span class="up">● Cerrada ${r ? 'cuando llegues (' + hLleg + ')' : 'ahora'}</span>` : ''} <span class="muted">${esc(e.hor)}</span>
     ${esLowcost(e) ? ' · <span class="tag lc">Low cost</span>' : ''}</p>
+    ${principal}${sen ? '<details class="mas"><summary>Ver más detalles (todos los precios, calculadora, alertas…)</summary>' : ''}
     ${r ? bloqueRuta(e.id) : ''}
     ${navLinks(e.lat, e.lon)}
     <div class="duo"><button class="btn alt" data-share="est" data-id="${e.id}">📤 Compartir</button><button class="btn" data-apuntar="est" data-id="${e.id}">⛽ He repostado aquí</button></div>
@@ -950,7 +1001,7 @@ async function detalle(id, enRuta = false) {
     <div class="muted">Comparado con la media de las ${zona.length} gasolineras a menos de 5 km de esta. Precios del ${esc(S.fecha)}.</div>
     ${calc}
     ${alertaHTML(e)}
-    <div class="box" id="histBox"><h3>📈 Evolución de precios</h3><div class="muted">Cargando…</div></div>`);
+    <div class="box" id="histBox"><h3>📈 Evolución de precios</h3><div class="muted">Cargando…</div></div>${sen ? '</details>' : ''}`);
   const h = await histProv(e.prov);
   const box = $('#histBox');
   if (!box) return;
@@ -983,8 +1034,12 @@ function detalleEv(id, enRuta = false) {
   const propia = S.cfg.tarifas?.[clave];
   const fav = S.favsEv.has(id);
   const sk = pt.sk.length ? pt.sk.map((s) => `<tr><td>${SOCKET_NAMES[s[0]]}${pt.compat.includes(s) ? ' ✅' : ''}</td><td>${s[2] ? s[2] + ' kW' : '—'}</td><td>${s[1]} toma${s[1] > 1 ? 's' : ''}</td></tr>`).join('') : '<tr><td colspan="3" class="muted">OpenStreetMap no indica los conectores de este punto.</td></tr>';
+  const sen = S.cfg.sencillo;
+  const principalEv = sen && t ? `<div class="pgrande ev"><span>Tu ${esc(nombreEV())} del 10 % al 80 %</span><b>${durTxt(t.h)}</b><small>${t.precio === 0 ? 'Gratis' : (t.fuente.startsWith('estimado') ? 'unos ' : '') + eur(t.coste) + ' la carga'}</small></div>` : '';
+  const botonesEv = sen ? `${principalEv}<a class="btn-ir grande" href="${irURL(pt.lat, pt.lon)}" target="_blank" rel="noopener">🧭 Cómo llegar</a><details class="mas"><summary>Ver más detalles (conectores, precio, tarifa…)</summary>` : '';
   abrirHoja(`<h2><span>${esc(pt.name || pt.op || 'Punto de recarga')}</span><button class="favbtn ${fav ? 'on' : ''}" data-favev="${id}" aria-label="Favorito">${fav ? '★' : '☆'}</button></h2>
     <p class="addr">${esc(pt.op)}${pt.op ? ' · ' : ''}${r ? `km ${Math.round(r.along)} de tu ruta (${km(r.kmFalta)} por delante)` : km(d)}${pt.fee === 0 ? ' · <b class="down">Gratis</b>' : pt.fee === 1 ? ' · De pago' : ''}${pt.hor ? '<br><span class="muted">Horario: ' + esc(pt.hor === '24/7' ? '24 horas' : pt.hor) + '</span>' : ''}</p>
+    ${botonesEv}
     ${r ? bloqueRuta(id) : ''}
     ${navLinks(pt.lat, pt.lon)}
     <div class="duo"><button class="btn alt" data-share="ev" data-id="${id}">📤 Compartir</button><button class="btn" data-apuntar="ev" data-id="${id}">⚡ He cargado aquí</button></div>
@@ -1002,7 +1057,7 @@ function detalleEv(id, enRuta = false) {
       <div class="tarifa"><input id="tarifaIn" type="text" inputmode="decimal" autocomplete="off" placeholder="0,49" value="${propia != null ? String(propia).replace('.', ',') : ''}"><span>€/kWh</span>
       <button class="btn" data-tarifa="${esc(clave)}" data-evid="${id}">Guardar</button>${propia != null ? `<button class="btn alt" data-tarifadel="${esc(clave)}" data-evid="${id}">Quitar</button>` : ''}</div>
       <a class="muted" href="https://www.mapareve.es/mapa-puntos-recarga" target="_blank" rel="noopener">Ver precios oficiales en el mapa Reve (Ministerio y Red Eléctrica) ↗</a></div>` : ''}
-    <div class="muted">Datos de OpenStreetMap. <a href="https://www.openstreetmap.org/${{ n: 'node', w: 'way', r: 'relation' }[id[0]]}/${id.slice(1)}" target="_blank" rel="noopener">Ver o corregir</a></div>`);
+    <div class="muted">Datos de OpenStreetMap. <a href="https://www.openstreetmap.org/${{ n: 'node', w: 'way', r: 'relation' }[id[0]]}/${id.slice(1)}" target="_blank" rel="noopener">Ver o corregir</a></div>${sen ? '</details>' : ''}`);
 }
 
 // ---------------------------------------------------------------- Gráfica SVG
@@ -1131,57 +1186,63 @@ function renderAjustes() {
   const c = S.cfg;
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
   const instalada = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
-  $('#ajustes').innerHTML = `<div class="set">
-    ${instalada ? '' : `<div class="box"><h3>📲 Instálala en tu móvil</h3>${S.installEvt ? '<button class="btn" id="instalar">Instalar GasoCerca</button>' : ios ? 'En Safari toca <b>Compartir</b> (□↑) y luego <b>Añadir a pantalla de inicio</b>.' : 'En Chrome abre el menú ⋮ y toca <b>Instalar aplicación</b> o <b>Añadir a pantalla de inicio</b>.'}</div>`}
-    <h2>🚗 Coche de gasolina, diésel o híbrido</h2>
-    ${campo('tieneComb', 'Tengo un coche de combustión', 'check')}
-    ${c.tieneComb ? `${campo('combNombre', 'Nombre (opcional)', 'text')}` : ''}
-    <div class="field"><label>Combustible</label><select data-set="fuel">${Object.keys(FUEL_NAMES).map((k) => `<option value="${k}" ${k === c.fuel ? 'selected' : ''}>${FUEL_NAMES[k]}</option>`).join('')}</select></div>
-    ${campo('litros', 'Litros que sueles repostar', 'number', 'min="1" max="120" step="1"')}
-    ${campo('consumo', 'Consumo (L/100 km)', 'number', 'min="1" max="20" step="0.1"')}
-    <h2>⏱️ Tu tiempo</h2>
-    ${campo('valorHora', 'Cuánto vale tu tiempo (€/hora)', 'number', 'min="0" step="1"')}
-    ${campo('velMedia', 'Velocidad media en tus trayectos (km/h)', 'number', 'min="5" max="120" step="1"')}
-    <div class="muted">Se usa para decidir si compensa ir más lejos. Con 0 €/h solo se cuenta el dinero. En ciudad, 20–30 km/h es lo normal.</div>
-    <h2>⚡ Coche eléctrico</h2>
-    ${campo('tieneEV', 'Tengo un coche eléctrico (o enchufable)', 'check')}
-    ${c.tieneEV ? `<div class="evset">
-    ${campo('evModelo', 'Modelo', 'text')}
-    ${campo('bat', 'Batería útil (kWh)', 'number', 'step="0.1"')}
-    ${campo('acKw', 'Carga AC máx. (kW)', 'number', 'step="0.1"')}
-    ${campo('dcKw', 'Carga rápida DC máx. (kW)', 'number', 'step="1"')}
-    ${campo('evConsumo', 'Consumo (kWh/100 km)', 'number', 'step="0.1"')}
-    <div class="muted" style="margin:10px 2px 6px">Precios orientativos de recarga pública cuando no conoces la tarifa:</div>
-    ${campo('kwhAC', 'Carga lenta AC (€/kWh)', 'number', 'step="0.01"')}
-    ${campo('kwhDC', 'Carga rápida DC (€/kWh)', 'number', 'step="0.01"')}
-    ${campo('kwhHPC', 'Ultrarrápida ≥100 kW (€/kWh)', 'number', 'step="0.01"')}
-    ${Object.keys(c.tarifas || {}).length ? `<div class="box"><h3>💾 Tus tarifas</h3>${Object.entries(c.tarifas).map(([k, v]) => `<div class="kv"><span>${esc(k.startsWith('op:') ? titulo(k.slice(3)) : 'Cargador ' + k.slice(4))}</span><span>${v.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €/kWh <button class="tag" data-tarifadel="${esc(k)}">✕</button></span></div>`).join('')}</div>` : ''}
-    ${campo('kwhCasa', 'Precio luz en casa (€/kWh)', 'number', 'step="0.01"')}
+  // opciones que pueden agobiar: en modo sencillo van plegadas al final
+  const tiempoAv = `${campo('velMedia', 'Velocidad media en tus trayectos (km/h)', 'number')}`;
+  const evAv = c.tieneEV ? `<h3 style="margin:14px 0 6px">⚡ Recarga (avanzado)</h3>
+    ${campo('acKw', 'Carga lenta máx. del coche (kW)', 'number')}
+    ${campo('dcKw', 'Carga rápida máx. del coche (kW)', 'number')}
     <div class="field" style="flex-wrap:wrap"><label>Conectores de tu coche</label><div class="brands" style="margin:0">${['ccs', 't2', 'chademo', 'schuko'].map((k) => `<button class="chip ${c.conectores.includes(k) ? 'on' : ''}" data-conect="${k}">${SOCKET_NAMES[k]}</button>`).join('')}</div></div>
     ${campo('sinDatos', 'Mostrar puntos sin datos de conector', 'check')}
-    <div class="muted">Casi todos los eléctricos vendidos en Europa usan Tipo 2 (carga lenta) y CCS2 (carga rápida).</div></div>` : ''}
-    <h2>💰 Marcas low cost</h2>
+    <div class="muted" style="margin:10px 2px 6px">Precios orientativos de recarga pública cuando no conoces la tarifa:</div>
+    ${campo('kwhAC', 'Carga lenta (€/kWh)', 'number')}
+    ${campo('kwhDC', 'Carga rápida (€/kWh)', 'number')}
+    ${campo('kwhHPC', 'Ultrarrápida ≥100 kW (€/kWh)', 'number')}
+    ${Object.keys(c.tarifas || {}).length ? `<div class="box"><h3>💾 Tus tarifas</h3>${Object.entries(c.tarifas).map(([k, v]) => `<div class="kv"><span>${esc(k.startsWith('op:') ? titulo(k.slice(3)) : 'Cargador ' + k.slice(4))}</span><span>${v.toLocaleString('es-ES', { minimumFractionDigits: 2 })} €/kWh <button class="tag" data-tarifadel="${esc(k)}">✕</button></span></div>`).join('')}</div>` : ''}` : '';
+  const lcAv = `<h3 style="margin:14px 0 6px">💰 Marcas low cost</h3>
     <div class="muted">Una por línea. Se usan para el filtro «Low cost».</div>
     <textarea id="lowcostTxt">${esc(c.lowcostList.join('\n'))}</textarea>
-    <div style="display:flex;gap:8px;margin-top:6px"><button class="btn" id="guardarLc">Guardar</button><button class="btn alt" id="resetLc">Restaurar lista</button></div>
-    <h2>📍 Ubicación</h2>
-    <div class="box"><div class="kv"><span>Estado</span><span>${S.geoError === 1 ? '❌ Sin permiso' : S.pos?.gps ? '✅ Funciona' : S.geoError ? '⚠️ Sin señal' : '—'}</span></div>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="geoReintentar">Probar ubicación</button><button class="btn alt" id="geoAyuda">Cómo dar permiso</button></div></div>
-    <h2>👋 Asistente</h2>
-    <div class="box"><div class="muted">Vuelve a responder las preguntas iniciales (combustible, consumo, tu tiempo, coche eléctrico…).</div><button class="btn alt" id="asistente" style="margin-top:8px">Volver a configurar</button></div>
-    <h2>💾 Copia de seguridad</h2>
-    <div class="box"><div class="muted">Tus favoritas, ajustes, tarifas, alertas y diario se guardan solo en este móvil. Haz una copia para no perderlos si cambias de móvil o borras la app.</div>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="exportar">Guardar copia</button><button class="btn alt" id="importar">Recuperar copia</button></div>
-    <input type="file" id="importarFich" accept="application/json,.json" hidden></div>
-    <h2>🔄 Versión</h2>
-    <div class="box"><div class="kv"><span>GasoCerca</span><span><b>v${APP_VERSION}</b></span></div>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="buscarAct">Buscar actualizaciones</button><button class="btn alt" id="verNovedades">Novedades</button><button class="btn alt" id="verTour">Ver tutorial</button></div></div>
-    <h2>ℹ️ Datos</h2>
+    <div style="display:flex;gap:8px;margin-top:6px"><button class="btn" id="guardarLc">Guardar</button><button class="btn alt" id="resetLc">Restaurar lista</button></div>`;
+  const datosAv = `<h3 style="margin:14px 0 6px">ℹ️ Datos</h3>
     <div class="box"><div class="kv"><span>Precios</span><span>${esc(S.fecha || '—')}</span></div>
     <div class="kv"><span>Gasolineras</span><span>${S.est.length.toLocaleString('es-ES')}</span></div>
     <div class="kv"><span>Recarga</span><span>${esc(S.ptsFuente || 'sin cargar')}</span></div>
     <div class="muted" style="margin-top:6px">Precios oficiales del Ministerio para la Transición Ecológica (geoportal de carburantes). Puntos de recarga y mapa © colaboradores de OpenStreetMap. Las gasolineras están obligadas a comunicar sus precios, pero puede haber retrasos: confirma en el surtidor.</div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn alt" id="directo">Actualizar directo del Ministerio</button><button class="btn alt" id="borrar">Borrar ajustes y favoritas</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn alt" id="directo">Actualizar directo del Ministerio</button><button class="btn alt" id="borrar">Borrar ajustes y favoritas</button></div>`;
+  $('#ajustes').innerHTML = `<div class="set">
+    ${instalada ? '' : `<div class="box"><h3>📲 Ponla en la pantalla de inicio</h3>${S.installEvt ? '<button class="btn" id="instalar">Instalar GasoCerca</button>' : ios ? 'En Safari toca <b>Compartir</b> (□↑) y luego <b>Añadir a pantalla de inicio</b>.' : 'En Chrome abre el menú ⋮ y toca <b>Instalar aplicación</b> o <b>Añadir a pantalla de inicio</b>.'}</div>`}
+    <h2>👀 Cómo ver la app</h2>
+    <div class="seg modoapp"><button data-sencillo="1" class="${c.sencillo ? 'on' : ''}">😊 Sencilla</button><button data-sencillo="0" class="${c.sencillo ? '' : 'on'}">🧰 Completa</button></div>
+    <div class="muted" style="margin:6px 2px 8px">${c.sencillo ? 'Ves solo lo importante: precios cerca, cómo llegar y favoritas.' : 'Ves todos los filtros, gastos, alertas y estadísticas.'}</div>
+    ${campo('letraGrande', '🔍 Letra más grande', 'check')}
+    <h2>🚗 Coche de gasolina, diésel o híbrido</h2>
+    ${campo('tieneComb', 'Tengo un coche de gasolina o diésel', 'check')}
+    ${c.tieneComb ? `${campo('combNombre', 'Nombre (opcional)', 'text')}
+    <div class="field"><label>Combustible</label><select data-set="fuel">${Object.keys(FUEL_NAMES).map((k) => `<option value="${k}" ${k === c.fuel ? 'selected' : ''}>${FUEL_NAMES[k]}</option>`).join('')}</select></div>
+    ${campo('litros', 'Litros que sueles echar', 'number')}
+    ${campo('consumo', 'Lo que gasta (litros cada 100 km)', 'number')}` : ''}
+    <h2>⚡ Coche eléctrico</h2>
+    ${campo('tieneEV', 'Tengo un coche eléctrico (o enchufable)', 'check')}
+    ${c.tieneEV ? `${campo('evModelo', 'Modelo', 'text')}
+    ${campo('bat', 'Batería (kWh)', 'number')}
+    ${campo('evConsumo', 'Lo que gasta (kWh cada 100 km)', 'number')}
+    ${campo('kwhCasa', 'Precio de la luz en casa (€/kWh)', 'number')}` : ''}
+    <h2>⏱️ Tu tiempo</h2>
+    ${campo('valorHora', 'Cuánto vale para ti una hora (€)', 'number')}
+    <div class="muted">Sirve para no mandarte lejos por ahorrar poco. Con 0 solo se cuenta el dinero.</div>
+    ${c.sencillo ? '' : tiempoAv + evAv + lcAv}
+    <h2>❓ Ayuda</h2>
+    <div class="box"><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn alt" id="ayuda">Preguntas frecuentes</button><button class="btn alt" id="verTour">Ver tutorial</button><button class="btn alt" id="asistente">Volver a configurar</button></div></div>
+    <h2>📍 Ubicación</h2>
+    <div class="box"><div class="kv"><span>Estado</span><span>${S.geoError === 1 ? '❌ Sin permiso' : S.pos?.gps ? '✅ Funciona' : S.geoError ? '⚠️ Sin señal' : '—'}</span></div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="geoReintentar">Probar ubicación</button><button class="btn alt" id="geoAyuda">Cómo dar permiso</button></div></div>
+    <h2>💾 Copia de seguridad</h2>
+    <div class="box"><div class="muted">Tus favoritas y ajustes se guardan solo en este móvil. Haz una copia para no perderlos si cambias de móvil.</div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="exportar">Guardar copia</button><button class="btn alt" id="importar">Recuperar copia</button></div>
+    <input type="file" id="importarFich" accept="application/json,.json" hidden></div>
+    ${c.sencillo ? `<details class="mas"><summary>Opciones avanzadas</summary>${tiempoAv}${evAv}${lcAv}${datosAv}</details>` : datosAv}
+    <h2>🔄 Versión</h2>
+    <div class="box"><div class="kv"><span>GasoCerca</span><span><b>v${APP_VERSION}</b></span></div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="buscarAct">Buscar actualizaciones</button><button class="btn alt" id="verNovedades">Novedades</button></div></div>
   </div>`;
 }
 
@@ -1213,13 +1274,16 @@ document.addEventListener('click', (ev) => {
   if (t.dataset.ev) { detalleEv(t.dataset.ev, enRuta); return; }
   if (t.dataset.fav) {
     const id = +t.dataset.fav; S.favs.has(id) ? S.favs.delete(id) : S.favs.add(id); save('favs', [...S.favs]);
-    t.classList.toggle('on'); t.textContent = S.favs.has(id) ? '★' : '☆'; toast(S.favs.has(id) ? 'Añadida a favoritas' : 'Quitada de favoritas'); render(); return;
+    if (t.dataset.lbl) t.textContent = S.favs.has(id) ? '★ En favoritas' : '☆ Guardar en favoritas';
+    else { t.classList.toggle('on'); t.textContent = S.favs.has(id) ? '★' : '☆'; }
+    toast(S.favs.has(id) ? 'Añadida a favoritas' : 'Quitada de favoritas'); render(); return;
   }
   if (t.dataset.favev) {
     const id = t.dataset.favev; S.favsEv.has(id) ? S.favsEv.delete(id) : S.favsEv.add(id); save('favsEv', [...S.favsEv]);
     t.classList.toggle('on'); t.textContent = S.favsEv.has(id) ? '★' : '☆'; render(); return;
   }
   if (t.dataset.radio) { c.radio = +t.dataset.radio; saveCfg(); render(); return; }
+  if (t.dataset.sencillo) { c.sencillo = t.dataset.sencillo === '1'; saveCfg(); render(); toast(c.sencillo ? 'Modo sencillo' : 'Modo completo'); return; }
   if (t.dataset.apuntar) { apuntarDesde(t.dataset.apuntar, t.dataset.id); return; }
   if (t.dataset.dcoche) { document.querySelectorAll('[data-dcoche]').forEach((b) => b.classList.toggle('on', b === t)); ajustaFormCoche(t.dataset.dcoche); return; }
   if (t.dataset.borrarent) { if (confirm('¿Borrar este apunte?')) { S.diario = S.diario.filter((x) => String(x.id) !== t.dataset.borrarent); save('diario', S.diario); render(); } return; }
@@ -1284,6 +1348,7 @@ document.addEventListener('click', (ev) => {
     case 'importar': $('#importarFich').click(); break;
     case 'nuevoRep': formDiario({ c: 'h', comb: c.fuel }); break;
     case 'asistente': asistente.iniciar(); break;
+    case 'ayuda': case 'ayudaBtn': ayuda(); break;
     case 'nuevaCarga': formDiario({ c: 'e', lugar: 'Casa', pu: c.kwhCasa }); break;
     case 'guardarDiario': guardarDiario(); break;
     case 'usarConsumo': c[t.dataset.campo] = +t.dataset.valor; saveCfg(); toast('Consumo actualizado'); render(); break;
@@ -1303,7 +1368,7 @@ document.addEventListener('change', (ev) => {
     if ((k === 'tieneEV' || k === 'tieneComb') && !c.tieneEV && !c.tieneComb) { c[k] = true; saveCfg(); toast('Necesitas al menos un coche'); render(); return; }
     toast('Guardado');
     if (k === 'fuel') renderChips();
-    if (k === 'tieneEV' || k === 'tieneComb') render();
+    if (k === 'tieneEV' || k === 'tieneComb' || k === 'letraGrande') render();
   }
 });
 const acCab = autocompletar($('#q'), $('#sug'), irALugar);
@@ -1362,7 +1427,8 @@ function mostrarNovedades(v) {
 const tour = (() => {
   // sel: elemento a iluminar (null = mensaje centrado). antes: prepara la pantalla.
   const PASOS = [
-    { sel: null, t: '👋 ¡Bienvenido a GasoCerca!', x: 'Te enseño en un minuto dónde está cada cosa. Puedes saltarlo y repetirlo cuando quieras desde <b>Ajustes</b>.' },
+    { sel: null, t: '👋 ¡Bienvenido a GasoCerca!', x: () => (S.cfg.sencillo ? 'Te enseño lo básico en 30 segundos. Es muy fácil: <b>abres la app y ves lo que tienes cerca y a qué precio</b>.' : 'Te enseño en un minuto dónde está cada cosa. Puedes saltarlo y repetirlo cuando quieras desde <b>Ajustes</b>.') },
+    { sel: '#ayudaBtn', t: '❓ Ayuda', x: 'Si tienes cualquier duda, toca este botón: ahí están las preguntas más habituales explicadas fácil.' },
     { sel: '.seg', t: '⛽ Combustible o ⚡ Recarga', x: () => (S.cfg.tieneEV ? 'Cambia entre las <b>gasolineras</b> y los <b>puntos de recarga</b> para tu eléctrico. Toda la app se adapta al modo elegido.' : 'Aquí verás las <b>gasolineras</b>. Si algún día tienes un eléctrico, actívalo en Ajustes y aparecerá el modo <b>⚡ Recarga</b>.') },
     { sel: '#btnLoc', t: '📍 Tu ubicación', x: 'La app usa tu GPS al abrirse. Toca aquí para volver a localizarte si te has movido.' },
     { sel: '#buscar', t: '🔎 Buscar otro sitio', x: 'Escribe un <b>pueblo</b> o un <b>código postal</b> para ver los precios de otra zona, por ejemplo antes de un viaje.' },
@@ -1372,7 +1438,7 @@ const tour = (() => {
     { sel: 'select[data-cfg=orden]', up: '.chip', t: '↕️ Orden', x: '<b>Lo que más compensa</b> suma el depósito, el combustible para ir y volver y <b>tu tiempo</b>. Así no te manda lejos por ahorrar un euro. También puedes ordenar por <b>más barata</b> o <b>más cerca</b>.' },
     { sel: '[data-tog=lowcost]', t: '💰 Filtros rápidos', x: '<b>Low cost</b> muestra solo las marcas baratas, <b>Abiertas</b> quita las cerradas ahora mismo y <b>Marcas</b> te deja elegir las tuyas. Desliza la fila hacia la izquierda para verlos todos.' },
     { sel: '#banner .banner', t: '⭐ La mejor opción', x: 'Aquí te digo cuál te conviene más y cuánto ahorras frente a la gasolinera más cercana, contando el desplazamiento.' },
-    { sel: '#lista .card', t: '🏷️ Cada gasolinera', x: 'El precio sale en <b style="color:var(--ok)">verde</b> si es barato, en <b style="color:var(--mid)">ámbar</b> si es normal y en <b style="color:var(--bad)">rojo</b> si es caro. <b>▼▲</b> indica si ha bajado o subido desde ayer.<br><br><b>Tócala</b> para ver todos los precios, ir con Google Maps o Waze, guardarla en ★ favoritas, compartirla o usar la calculadora.' },
+    { sel: '#lista .card', t: '🏷️ Cada gasolinera', x: () => S.cfg.sencillo ? 'El precio sale en <b style="color:var(--ok)">verde</b> si es barato, <b style="color:var(--mid)">ámbar</b> si es normal y <b style="color:var(--bad)">rojo</b> si es caro.<br><br>Toca <b>🧭 Ir</b> y el móvil te lleva hasta allí. Toca la tarjeta para ver más y guardarla en ★ favoritas.' : 'El precio sale en <b style="color:var(--ok)">verde</b> si es barato, en <b style="color:var(--mid)">ámbar</b> si es normal y en <b style="color:var(--bad)">rojo</b> si es caro. <b>▼▲</b> indica si ha bajado o subido desde ayer.<br><br><b>Tócala</b> para ver todos los precios, ir con Google Maps o Waze, guardarla en ★ favoritas, compartirla o usar la calculadora.' },
     { sel: '.bottom [data-v=ruta]', t: '🛣️ Ruta', x: '¿Te vas de viaje? Dime adónde vas y te enseño las gasolineras o cargadores <b>de camino</b>, con los minutos de desvío y a qué hora pasas por cada una.' },
     { sel: '.bottom [data-v=mapa]', t: '🗺️ Mapa', x: 'Todas las gasolineras con su precio sobre el mapa. Toca una etiqueta para ver los detalles.' },
     { sel: '.bottom [data-v=favs]', t: '★ Favoritas', x: 'Las gasolineras y cargadores que guardes, con su precio actual, estés donde estés.' },
@@ -1668,8 +1734,8 @@ function renderRuta(soloLista = false) {
     <button class="btn alt" id="rutaCambiar">Cambiar</button></div>
     <div id="mapaRuta"></div>`;
   let h = `<div class="chips rchips">
-      ${chipSel('rutaOrden', '', c.rutaOrden, [['total', 'Lo que más compensa'], ['km', 'En orden de paso'], ['precio', 'Más barata']])}
-      ${chipSel('rutaDesvio', 'Desvío ≤ ', c.rutaDesvio, [2, 5, 10, 15].map((n) => [n, n + ' min']))}
+      ${c.sencillo ? '' : chipSel('rutaOrden', '', c.rutaOrden, [['total', 'Lo que más compensa'], ['km', 'En orden de paso'], ['precio', 'Más barata']])}
+      ${c.sencillo ? '' : chipSel('rutaDesvio', 'Desvío ≤ ', c.rutaDesvio, [2, 5, 10, 15].map((n) => [n, n + ' min']))}
       ${chipSel('rutaKm', 'Parar en ', c.rutaKm, [[0, 'todo el viaje'], [50, '50 km'], [100, '100 km'], [150, '150 km'], [200, '200 km'], [300, '300 km']])}
     </div>`;
   if (!res.length) h += `<div class="empty"><b>No hay ${ev ? 'cargadores' : 'gasolineras'} con estos filtros</b>Prueba a permitir más minutos de desvío o a quitar filtros.</div>`;
@@ -1898,7 +1964,13 @@ const asistente = (() => {
   const PASOS = [
     () => `<div class="aico">⛽⚡</div><h2>¡Hola! Vamos a configurar GasoCerca</h2>
       <p>Te hago unas preguntas rápidas para que los precios, las rutas y los cálculos de «lo que más compensa» se ajusten a <b>tu coche</b>.</p>
-      <p class="muted">Tardas menos de un minuto. Tus respuestas se guardan <b>solo en este móvil</b>: no hay cuentas ni registros y la app es gratis.</p>`,
+      <p class="muted">Son 5 preguntas y tardas menos de un minuto. Tus respuestas se guardan <b>solo en este móvil</b>: no hay cuentas ni registros y la app es gratis.</p>`,
+    () => `<h2>¿Cómo prefieres ver la app?</h2><p class="muted">Lo puedes cambiar cuando quieras en Ajustes.</p>
+      <div class="acards">
+        <button type="button" class="acard ${r.sencillo ? 'on' : ''}" data-ac="sencillo" data-fija="1"><span>😊</span><b>Sencilla (recomendada)</b><small>Solo lo importante: precios cerca, un botón para ir y tus favoritas</small></button>
+        <button type="button" class="acard ${!r.sencillo ? 'on' : ''}" data-ac="sencillo" data-fija="0"><span>🧰</span><b>Completa</b><small>Todos los filtros, gastos, alertas y estadísticas</small></button>
+      </div>
+      <button type="button" class="acard ${r.letraGrande ? 'on' : ''}" data-ac="letraGrande" data-tog="1" style="margin-top:16px"><span>🔍</span><b>Letra más grande</b><small>Para leer mejor</small></button>`,
     () => `<h2>¿Qué coches tienes?</h2><p class="muted">Puedes elegir los dos.</p>
       <div class="acards">
         <button type="button" class="acard ${r.tieneComb ? 'on' : ''}" data-ac="tieneComb" data-tog="1"><span>🚗</span><b>Gasolina, diésel o híbrido</b><small>Ver gasolineras y precios</small></button>
@@ -1925,7 +1997,7 @@ const asistente = (() => {
       <button type="button" class="btn" data-aloc="1" style="width:100%">${S.pos?.gps ? '✅ Ubicación activada' : 'Permitir ubicación'}</button>
       <p class="muted" style="margin-top:10px">Si no quieres, puedes buscar un pueblo o un código postal en cualquier momento.</p>`,
   ];
-  const aplica = (i) => (i === 2 ? r.tieneComb : i === 3 ? r.tieneEV : true);
+  const aplica = (i) => (i === 3 ? r.tieneComb : i === 4 ? r.tieneEV : true);
   function pinta() {
     const total = PASOS.filter((_, i) => aplica(i)).length;
     const n = PASOS.slice(0, paso + 1).filter((_, i) => aplica(i)).length;
@@ -1943,7 +2015,7 @@ const asistente = (() => {
   }
   function terminar(saltado) {
     if (!saltado) {
-      for (const k of ['tieneComb', 'tieneEV', 'fuel', 'litros', 'consumo', 'combNombre', 'evModelo', 'bat', 'conectores', 'dcKw', 'acKw', 'kwhCasa', 'valorHora', 'radio']) if (r[k] !== undefined) S.cfg[k] = r[k];
+      for (const k of ['sencillo', 'letraGrande', 'tieneComb', 'tieneEV', 'fuel', 'litros', 'consumo', 'combNombre', 'evModelo', 'bat', 'conectores', 'dcKw', 'acKw', 'kwhCasa', 'valorHora', 'radio']) if (r[k] !== undefined) S.cfg[k] = r[k];
       if (S.cfg.conectores.includes('t2') && !S.cfg.conectores.includes('t2c')) S.cfg.conectores = [...S.cfg.conectores, 't2c'];
       S.cfg.modo = S.cfg.tieneComb ? 'fuel' : 'ev';
     }
@@ -1958,7 +2030,7 @@ const asistente = (() => {
   function iniciar() {
     cerrarHoja();
     const c = S.cfg;
-    r = { tieneComb: c.tieneComb, tieneEV: c.tieneEV, fuel: c.fuel, litros: c.litros, consumo: c.consumo, combNombre: c.combNombre, evModelo: c.evModelo, bat: c.bat,
+    r = { sencillo: c.sencillo, letraGrande: c.letraGrande, tieneComb: c.tieneComb, tieneEV: c.tieneEV, fuel: c.fuel, litros: c.litros, consumo: c.consumo, combNombre: c.combNombre, evModelo: c.evModelo, bat: c.bat,
       conectores: c.conectores.filter((x) => x !== 't2c'), dcKw: c.dcKw, acKw: c.acKw, kwhCasa: c.kwhCasa, valorHora: c.valorHora, radio: c.radio };
     paso = 0;
     if (!el) {
@@ -1967,13 +2039,16 @@ const asistente = (() => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         const b = e.target.closest('button'); if (!b) return;
-        if (b.dataset.anav === 'sig') { if (paso === 1 && !r.tieneComb && !r.tieneEV) { toast('Elige al menos un coche'); return; } ir(1); }
+        if (b.dataset.anav === 'sig') { if (paso === 2 && !r.tieneComb && !r.tieneEV) { toast('Elige al menos un coche'); return; } ir(1); }
         else if (b.dataset.anav === 'atras') ir(-1);
         else if (b.dataset.anav === 'saltar') terminar(true);
         else if (b.dataset.aloc) { localizar(); setTimeout(pinta, 2500); }
         else if (b.dataset.ac) {
           const k = b.dataset.ac;
-          if (b.dataset.tog) r[k] = !r[k];
+          if (b.dataset.fija) r[k] = b.dataset.fija === '1';
+          else if (b.dataset.tog) r[k] = !r[k];
+          if (k === 'letraGrande') document.body.classList.toggle('grande', !!r[k]);
+          else if (b.dataset.fija || b.dataset.tog) { /* ya hecho */ }
           else if (b.dataset.multi) { const st = new Set(r[k]); st.has(b.dataset.val) ? st.delete(b.dataset.val) : st.add(b.dataset.val); r[k] = [...st]; }
           else r[k] = isNaN(+b.dataset.val) ? b.dataset.val : +b.dataset.val;
           pinta();
@@ -1991,6 +2066,28 @@ const asistente = (() => {
   }
   return { iniciar };
 })();
+
+// ---------------------------------------------------------------- Ayuda (preguntas frecuentes)
+function ayuda() {
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const P = [
+    ['¿Para qué sirve esta app?', 'Para saber qué gasolineras (o puntos de recarga) tienes cerca y a qué precio, y que el móvil te lleve hasta la que más te conviene.'],
+    ['¿Qué significan los colores del precio?', '<b style="color:var(--ok)">Verde</b>: de las más baratas de la zona. <b style="color:var(--mid)">Ámbar</b>: precio normal. <b style="color:var(--bad)">Rojo</b>: de las más caras.'],
+    ['¿Cómo voy a una gasolinera?', 'Toca el botón <b>🧭 Ir</b> (o «Cómo llegar») y se abre el navegador del móvil con el camino ya puesto.'],
+    ['¿Por qué me recomienda una que no es la más barata?', 'Porque también cuenta el viaje: si la más barata está lejos, el combustible y el tiempo que gastas en ir pueden costar más de lo que ahorras.'],
+    ['¿Los precios son de verdad?', 'Sí: son los precios oficiales que las gasolineras comunican al Ministerio y se actualizan cada media hora. Aun así, confirma el precio en el surtidor.'],
+    ['¿Cómo busco gasolineras en otro sitio?', 'Escribe el pueblo, la calle o el código postal en el buscador de arriba. Para volver a donde estás, toca «📍 Usar mi ubicación».'],
+    ['¿Cómo guardo mis gasolineras de siempre?', 'Abre una gasolinera y toca <b>☆ Guardar en favoritas</b>. Las verás en la pestaña <b>★ Favoritas</b>.'],
+    ['¿Y si me voy de viaje?', 'En la pestaña <b>🛣️ Ruta</b> escribe adónde vas y te enseña las gasolineras que te pillan de camino.'],
+    ['No me sale mi ubicación', 'Seguramente el móvil no le ha dado permiso a la app. <button class="lnk" id="geoAyuda">Ver cómo activarla</button>'],
+    ['¿Cuesta dinero? ¿Qué pasa con mis datos?', 'Es <b>gratis</b> y no hay que registrarse. Lo que configuras se guarda <b>solo en tu móvil</b>; nadie más lo ve.'],
+    ['¿Cómo la pongo en la pantalla de inicio?', ios ? 'En Safari toca <b>Compartir</b> (□↑) y luego <b>Añadir a pantalla de inicio</b>.' : 'En Chrome toca el menú <b>⋮</b> y luego <b>Instalar aplicación</b> o <b>Añadir a pantalla de inicio</b>.'],
+    ['Quiero ver más opciones', S.cfg.sencillo ? 'En <b>Ajustes → Cómo ver la app</b> elige <b>🧰 Completa</b>: verás filtros por marca, low cost, gastos, alertas de precio y más.' : 'Ya estás en el modo completo. Si lo ves demasiado lleno, en <b>Ajustes</b> elige <b>😊 Sencilla</b>.'],
+  ];
+  abrirHoja(`<h2>❓ Ayuda</h2><p class="addr">Toca una pregunta para ver la respuesta.</p>
+    <div class="faq">${P.map(([q, a]) => `<details><summary>${q}</summary><p>${a}</p></details>`).join('')}</div>
+    <div class="duo" style="margin-top:14px"><button class="btn alt" id="verTour">Ver el tutorial</button><button class="btn" id="cerrarHoja">Entendido</button></div>`);
+}
 
 // ---------------------------------------------------------------- Arranque
 // DEBE quedarse al final del archivo: así todo (ruta, diario, asistente…) está definido antes de pintar

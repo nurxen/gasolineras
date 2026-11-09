@@ -27,6 +27,7 @@ Sin servidores de pago ni anuncios: todo se aloja gratis en **GitHub Pages**, y 
 Basta con mandar el enlace de la app (`https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/`). Es **gratis** y **no hay cuentas**:
 
 - La primera vez que alguien la abre, un **asistente** le pregunta su combustible, cuánto reposta, su consumo, cuánto vale su tiempo y, si quiere, los datos de su coche eléctrico (es opcional).
+- Empieza en **modo sencillo**: solo precios cerca, un botón grande para ir y favoritas. Hay botón de **ayuda (?)** arriba y opción de **letra grande**. En Ajustes se puede pasar al **modo completo**.
 - Todo se guarda **solo en su móvil**. Nadie ve los datos de nadie, y en GitHub solo están los precios públicos.
 - Cada uno puede cambiarlo después en **Ajustes** o repetir el asistente con **Volver a configurar**.
 
