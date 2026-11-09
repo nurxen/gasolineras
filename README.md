@@ -81,4 +81,5 @@ GitHub pausa las tareas programadas de un repositorio público tras **60 días s
 ## Fuentes de datos
 
 - Precios: [Geoportal de carburantes — Ministerio para la Transición Ecológica y el Reto Demográfico](https://geoportalgasolineras.es) (API REST pública y gratuita).
+- Código QR: [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) (licencia MIT). Mapa: [Leaflet](https://leafletjs.com) (licencia BSD-2).
 - Puntos de recarga y mapa: © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright) (ODbL).

@@ -3,7 +3,7 @@ const VERSION = '__VERSION__';
 const SHELL = `gc-shell-${VERSION}`;
 const DATA = 'gc-data';
 const TILES = 'gc-tiles';
-const ARCHIVOS = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest', 'vendor/leaflet.js', 'vendor/leaflet.css',
+const ARCHIVOS = ['./', 'index.html', 'app.css', 'app.js', 'manifest.webmanifest', 'vendor/leaflet.js', 'vendor/leaflet.css', 'vendor/qrcode.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

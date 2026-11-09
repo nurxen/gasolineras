@@ -3,8 +3,12 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 const NOVEDADES = {
+  '1.10.0': [
+    '💌 <b>Pásasela a alguien</b>: en Ajustes (y en la ayuda) hay un mensaje listo para mandar por WhatsApp a familia y amigos, o un código QR para que lo escaneen con la cámara.',
+    '🚗 Bajo el nombre de la app aparece <b>tu coche</b>. Tócalo para cambiarlo.',
+  ],
   '1.9.0': [
     '🧭 <b>Tutorial a medida</b>: corto (6 pasos) en el modo sencillo y completo en el modo completo.',
     '📱 En iPhone, el asistente explica <b>cómo dar permiso de ubicación</b> si el móvil no lo pregunta (Ajustes → Sitios web de Safari).',
@@ -141,6 +145,12 @@ const nombreEV = () => S.cfg.evModelo || 'eléctrico';
 // enlace para que el móvil te lleve: Apple Maps en iPhone, Google Maps en el resto
 const irURL = (lat, lon) => (/iphone|ipad|ipod/i.test(navigator.userAgent) ? `https://maps.apple.com/?daddr=${lat},${lon}&dirflg=d` : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}&travelmode=driving`);
 const nombreComb = () => S.cfg.combNombre || 'Coche';
+// texto pequeño bajo el nombre de la app: el coche que se está usando
+function textoCoche() {
+  const c = S.cfg;
+  if (c.modo === 'ev') return '⚡ ' + (c.evModelo || 'Mi eléctrico');
+  return '🚗 ' + (c.combNombre ? c.combNombre + ' · ' : '') + (FUEL_NAMES[c.fuel] || '');
+}
 
 // ---------------------------------------------------------------- Utilidades
 const $ = (s, el = document) => el.querySelector(s);
@@ -644,6 +654,7 @@ function render() {
   document.querySelectorAll('.bottom button').forEach((b) => b.classList.toggle('on', b.dataset.v === S.cfg.vista));
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + S.cfg.vista));
   $('#locTxt').textContent = textoPos();
+  $('#miCoche').textContent = textoCoche();
   renderChips();
   $('.bottom [data-v=favs]').classList.toggle('aviso', alertasCumplidas().length > 0);
   if (S.ptsCentro && S.cfg.evRadio * 1000 > S.ptsCentro.rad) { S.pts = null; S.ptsCentro = null; }
@@ -1217,6 +1228,7 @@ function renderAjustes() {
     <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn alt" id="directo">Actualizar directo del Ministerio</button><button class="btn alt" id="borrar">Borrar ajustes y favoritas</button></div>`;
   $('#ajustes').innerHTML = `<div class="set">
     ${instalada ? '' : `<div class="box"><h3>📲 Ponla en la pantalla de inicio</h3>${S.installEvt ? '<button class="btn" id="instalar">Instalar GasoCerca</button>' : ios ? 'En Safari toca <b>Compartir</b> (□↑) y luego <b>Añadir a pantalla de inicio</b>.' : 'En Chrome abre el menú ⋮ y toca <b>Instalar aplicación</b> o <b>Añadir a pantalla de inicio</b>.'}</div>`}
+    <div class="box compartir"><h3>💌 Pásasela a alguien</h3><div class="muted">Familia y amigos: les mandas un mensaje con el enlace y listo.</div><button class="btn" id="compartirApp" style="margin-top:8px;width:100%">Compartir la app</button></div>
     <h2>👀 Cómo ver la app</h2>
     <div class="seg modoapp"><button data-sencillo="1" class="${c.sencillo ? 'on' : ''}">😊 Sencilla</button><button data-sencillo="0" class="${c.sencillo ? '' : 'on'}">🧰 Completa</button></div>
     <div class="muted" style="margin:6px 2px 8px">${c.sencillo ? 'Ves solo lo importante: precios cerca, cómo llegar y favoritas.' : 'Ves todos los filtros, gastos, alertas y estadísticas.'}</div>
@@ -1355,6 +1367,11 @@ document.addEventListener('click', (ev) => {
     case 'nuevoRep': formDiario({ c: 'h', comb: c.fuel }); break;
     case 'asistente': asistente.iniciar(); break;
     case 'ayuda': case 'ayudaBtn': ayuda(); break;
+    case 'miCoche': c.vista = 'ajustes'; saveCfg(); render(); break;
+    case 'compartirApp': compartirApp(); break;
+    case 'appWhatsapp': window.open('https://wa.me/?text=' + encodeURIComponent(mensajeApp()), '_blank', 'noopener'); break;
+    case 'appNativo': navigator.share({ title: 'GasoCerca', text: mensajeApp().replace(urlApp(), '').trim(), url: urlApp() }).catch(() => {}); break;
+    case 'appCopiar': navigator.clipboard?.writeText(mensajeApp()).then(() => toast('Mensaje copiado: pégalo donde quieras'), () => toast('No se pudo copiar')); break;
     case 'nuevaCarga': formDiario({ c: 'e', lugar: 'Casa', pu: c.kwhCasa }); break;
     case 'guardarDiario': guardarDiario(); break;
     case 'usarConsumo': c[t.dataset.campo] = +t.dataset.valor; saveCfg(); toast('Consumo actualizado'); render(); break;
@@ -1425,7 +1442,7 @@ function mostrarNovedades(v) {
     // usuarios que ya tenían la app (tienen ajustes guardados) ven las novedades
     // el tutorial tiene prioridad: quien no lo ha visto lo ve una vez (también al actualizar)
     if ((anterior || localStorage.getItem('gc.cfg')) && load('tourVisto', false)) setTimeout(() => mostrarNovedades(APP_VERSION), 1200);
-    if (anterior && anterior < '1.3.0' && S.cfg.orden === 'precio') { S.cfg.orden = 'total'; saveCfg(); }
+    if (anterior && /^1\.[0-2]\./.test(anterior) && S.cfg.orden === 'precio') { S.cfg.orden = 'total'; saveCfg(); }
     save('version', APP_VERSION);
   }
 })();
@@ -2102,11 +2119,38 @@ function ayuda() {
     ['¿De dónde salen los precios?', 'Del <b>Geoportal de Carburantes</b> del Ministerio para la Transición Ecológica y el Reto Demográfico (datos abiertos). Los mapas, los puntos de recarga y las rutas son de © colaboradores de <b>OpenStreetMap</b>. Esta app <b>no es oficial</b> ni está relacionada con el Ministerio.'],
     ['Aviso', 'GasoCerca se ofrece gratis y tal cual, sin garantías. Los precios, horarios y datos de recarga pueden tener retrasos o errores: <b>confirma siempre en la gasolinera</b>. Los cálculos de ahorro, consumo y tiempo son orientativos.'],
     ['¿Cómo la pongo en la pantalla de inicio?', ios ? 'En Safari toca <b>Compartir</b> (□↑) y luego <b>Añadir a pantalla de inicio</b>.' : 'En Chrome toca el menú <b>⋮</b> y luego <b>Instalar aplicación</b> o <b>Añadir a pantalla de inicio</b>.'],
+    ['¿Puedo pasársela a alguien?', 'Claro, a tu familia y amigos. <button class="lnk" id="compartirApp">Compartir la app</button>'],
     ['Quiero ver más opciones', S.cfg.sencillo ? 'En <b>Ajustes → Cómo ver la app</b> elige <b>🧰 Completa</b>: verás filtros por marca, low cost, gastos, alertas de precio y más.' : 'Ya estás en el modo completo. Si lo ves demasiado lleno, en <b>Ajustes</b> elige <b>😊 Sencilla</b>.'],
   ];
   abrirHoja(`<h2>❓ Ayuda</h2><p class="addr">Toca una pregunta para ver la respuesta.</p>
     <div class="faq">${P.map(([q, a]) => `<details><summary>${q}</summary><p>${a}</p></details>`).join('')}</div>
     <div class="duo" style="margin-top:14px"><button class="btn alt" id="verTour">Ver el tutorial</button><button class="btn" id="cerrarHoja">Entendido</button></div>`);
+}
+
+// ---------------------------------------------------------------- Compartir la app
+const urlApp = () => location.origin + location.pathname.replace(/index\.html$/, '');
+function mensajeApp() {
+  return `¡Hola! Te paso GasoCerca, una app que uso para ver las gasolineras más baratas cerca y cuál me compensa más${S.cfg.tieneEV ? ' (también puntos de recarga)' : ''}. ⛽
+
+Es gratis, sin anuncios y sin registrarse. Ábrela en el móvil y añádela a la pantalla de inicio:
+${urlApp()}`;
+}
+function cargarQR() {
+  if (window.qrcode) return Promise.resolve();
+  return new Promise((ok, ko) => { const sc = document.createElement('script'); sc.src = 'vendor/qrcode.js'; sc.onload = ok; sc.onerror = ko; document.head.appendChild(sc); });
+}
+async function compartirApp() {
+  abrirHoja(`<h2>💌 Pásasela a alguien</h2>
+    <p class="addr">Pensada para familia y amigos 😊. Este es el mensaje que les llegará:</p>
+    <div class="msgapp">${esc(mensajeApp()).replace(/\n/g, '<br>')}</div>
+    <div class="duo" style="margin-top:12px"><button class="btn wa" id="appWhatsapp">💬 WhatsApp</button>${navigator.share ? '<button class="btn alt" id="appNativo">📤 Otras apps</button>' : '<button class="btn alt" id="appCopiar">📋 Copiar</button>'}</div>
+    ${navigator.share ? '<button class="btn alt" id="appCopiar" style="width:100%;margin-top:-2px">📋 Copiar el mensaje</button>' : ''}
+    <div class="qrbox"><div id="qrApp" class="qr"></div><div class="muted">¿Lo tienes al lado? Que apunte con la cámara de su móvil a este código.</div></div>`);
+  try {
+    await cargarQR();
+    const q = window.qrcode(0, 'M'); q.addData(urlApp()); q.make();
+    const el = $('#qrApp'); if (el) el.innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+  } catch { const el = $('#qrApp'); if (el) el.closest('.qrbox').remove(); }
 }
 
 // ---------------------------------------------------------------- Arranque

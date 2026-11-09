@@ -337,3 +337,23 @@ details.mas[open] > summary::after { content: ' ▴'; }
 .field input[type="text"]:not([inputmode]) { width: 55%; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); text-align: right; }
 .top .seg[hidden] { display: none; }
 .sug .sug-mapa { background: color-mix(in srgb, var(--acc) 8%, var(--card)); color: var(--acc); }
+
+/* ---------- v1.10: tu coche y compartir ---------- */
+.btit { display: flex; flex-direction: column; line-height: 1.1; min-width: 0; }
+.micoche { font-size: 11.5px; font-weight: 600; color: var(--muted); text-align: left; padding: 1px 0 0; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.micoche:empty { display: none; }
+.msgapp { background: var(--bg); border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; padding: 11px 13px; font-size: 14.5px; line-height: 1.45; word-break: break-word; }
+.btn.wa { background: #25d366; color: #fff; }
+.qrbox { text-align: center; margin: 16px 0 4px; }
+.qr { width: 190px; height: 190px; margin: 0 auto 8px; background: #fff; border-radius: 12px; padding: 6px; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.box.compartir { background: color-mix(in srgb, var(--acc) 8%, var(--card)); }
+.seg button { white-space: nowrap; }
+.top-row .brand { min-width: 0; flex: 1 1 auto; }
+.top-row .seg { flex: none; }
+@media (max-width: 420px) {
+  .brand { font-size: 15.5px; gap: 6px; }
+  .brand img { width: 26px; height: 26px; }
+  .top .seg button { padding: 6px 9px; font-size: 12.5px; }
+  .micoche { max-width: 34vw; }
+}
