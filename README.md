@@ -17,6 +17,8 @@ Sin servidores de pago ni anuncios: todo se aloja gratis en **GitHub Pages**, y 
 - **Lo que más compensa**: tiene en cuenta el combustible del trayecto y **tu tiempo** (€/hora configurable), para no mandarte lejos por ahorrar 1 €.
 - **Modo recarga ⚡**: puntos de recarga filtrados por conector (CCS2 y Tipo 2 para el Leapmotor T03), potencia y gratuitos, con **tiempo estimado del 10 % al 80 %** y coste.
   Los operadores no publican sus tarifas en abierto (solo se ven en el mapa oficial [Reve](https://www.mapareve.es)), así que el precio es **tu tarifa** si la guardas, el de OpenStreetMap si lo hay o una estimación por tipo de cargador.
+- **Diario de repostajes y recargas**: gasto mensual, ahorro frente a la media de la zona y consumo real de cada coche.
+- **Alertas de precio** en tus favoritas y **copia de seguridad** de tus datos.
 - **Comparativa** del coste por 100 km entre el híbrido y el eléctrico.
 - Funciona **sin conexión** con los últimos datos descargados.
 

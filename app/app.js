@@ -3,8 +3,15 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const NOVEDADES = {
+  '1.6.0': [
+    '📒 <b>Diario de repostajes y recargas</b>: toca «He repostado aquí» o «He cargado aquí» en cualquier ficha (o añádelo en <b>Gastos</b>) y la app te enseña cuánto gastas al mes, cuánto llevas <b>ahorrado</b> frente a la media de la zona y el <b>consumo real</b> de cada coche.',
+    '🔔 <b>Alertas de precio</b>: en la ficha de una gasolinera pon «avísame si baja de…» y cuando abras la app te avisará si ha llegado a ese precio.',
+    '💾 <b>Copia de seguridad</b>: guarda o recupera tus favoritas, ajustes, tarifas y diario desde Ajustes (útil si cambias de móvil).',
+    '📲 <b>Accesos directos</b> (Android): mantén pulsado el icono para ir directo a Recarga, Ruta o Gastos.',
+    '📊 La pestaña «Tendencia» pasa a llamarse <b>Gastos</b> y reúne tu diario y la evolución de precios.',
+  ],
   '1.5.0': [
     '⚡ <b>Arranque instantáneo</b>: al abrir la app ves al momento los últimos precios guardados y se actualizan solos por detrás (antes esperaba a descargarlo todo).',
     '🛰️ <b>Ruta en marcha</b>: mientras tienes la Ruta abierta, la app sigue tu GPS y va quitando las gasolineras que ya has pasado y actualizando kilómetros y horas.',
@@ -85,6 +92,8 @@ const S = {
   cfg: { ...DEF, ...load('cfg', {}) },
   favs: new Set(load('favs', [])),
   favsEv: new Set(load('favsEv', [])),
+  diario: load('diario', []), // repostajes y recargas apuntados
+  alertas: load('alertas', {}), // id gasolinera -> { f: combustible, p: precio objetivo (milésimas) }
   pos: load('pos', null), // {lat, lon, txt, gps}
   est: [], fecha: '', provs: {},
   pts: null, ptsFuente: '', ptsCargando: false,
@@ -591,6 +600,7 @@ function render() {
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('on', v.id === 'v-' + S.cfg.vista));
   $('#locTxt').textContent = textoPos();
   renderChips();
+  $('.bottom [data-v=favs]').classList.toggle('aviso', alertasCumplidas().length > 0);
   if (S.ptsCentro && S.cfg.evRadio * 1000 > S.ptsCentro.rad) { S.pts = null; S.ptsCentro = null; }
   if (S.cfg.modo === 'ev' && !S.pts && !S.ptsEsperaPos) cargadores();
   const v = S.cfg.vista;
@@ -725,7 +735,7 @@ function renderLista() {
   const sigRadio = [1, 2, 3, 5, 10, 15, 25, 50].find((n) => n > c.radio);
   const ampliar = lista.length < 4 && sigRadio && !c.lowcost && !c.marcas.length
     ? `<div class="geoaviso">Solo hay ${lista.length} ${lista.length === 1 ? 'gasolinera' : 'gasolineras'} a menos de ${c.radio} km. <button data-radio="${Math.max(sigRadio, 15)}">Buscar hasta ${Math.max(sigRadio, 15)} km</button></div>` : '';
-  $('#banner').innerHTML = avisoDatos() + avisoGeo() + `<div class="banner">${b}</div>` + ampliar;
+  $('#banner').innerHTML = avisosAlertas() + avisoDatos() + avisoGeo() + `<div class="banner">${b}</div>` + ampliar;
   const ahora = new Date();
   let h = lista.slice(0, S.limite).map((e) => tarjeta(e, cortes, ahora)).join('');
   if (lista.length > S.limite) h += `<button class="more" id="mas">Ver más (${lista.length - S.limite})</button>`;
@@ -915,10 +925,11 @@ async function detalle(id, enRuta = false) {
     ${esLowcost(e) ? ' · <span class="tag lc">Low cost</span>' : ''}</p>
     ${r ? bloqueRuta(e.id) : ''}
     ${navLinks(e.lat, e.lon)}
-    <button class="btn alt share" data-share="est" data-id="${e.id}">📤 Compartir</button>
+    <div class="duo"><button class="btn alt" data-share="est" data-id="${e.id}">📤 Compartir</button><button class="btn" data-apuntar="est" data-id="${e.id}">⛽ He repostado aquí</button></div>
     <table class="ptable">${filas}</table>
     <div class="muted">Comparado con la media de las ${zona.length} gasolineras a menos de 5 km de esta. Precios del ${esc(S.fecha)}.</div>
     ${calc}
+    ${alertaHTML(e)}
     <div class="box" id="histBox"><h3>📈 Evolución de precios</h3><div class="muted">Cargando…</div></div>`);
   const h = await histProv(e.prov);
   const box = $('#histBox');
@@ -957,7 +968,7 @@ function detalleEv(id, enRuta = false) {
     <p class="addr">${esc(pt.op)}${pt.op ? ' · ' : ''}${r ? `km ${Math.round(r.along)} de tu ruta (${km(r.kmFalta)} por delante)` : km(d)}${pt.fee === 0 ? ' · <b class="down">Gratis</b>' : pt.fee === 1 ? ' · De pago' : ''}${pt.hor ? '<br><span class="muted">Horario: ' + esc(pt.hor === '24/7' ? '24 horas' : pt.hor) + '</span>' : ''}</p>
     ${r ? bloqueRuta(id) : ''}
     ${navLinks(pt.lat, pt.lon)}
-    <button class="btn alt share" data-share="ev" data-id="${id}">📤 Compartir</button>
+    <div class="duo"><button class="btn alt" data-share="ev" data-id="${id}">📤 Compartir</button><button class="btn" data-apuntar="ev" data-id="${id}">⚡ He cargado aquí</button></div>
     <table class="ptable">${sk}</table>
     ${t ? `<div class="box"><h3>🔋 Tu ${esc(c.evModelo)} del 10 % al 80 %</h3>
       <div class="kv"><span>Conector usado</span><span>${SOCKET_NAMES[t.t]} a ${t.ef.toLocaleString('es-ES')} kW</span></div>
@@ -1008,7 +1019,7 @@ function renderFavs() {
   const fs = S.est.filter((e) => S.favs.has(e.id)).map((e) => ({ ...e, d: S.pos ? dist(S.pos.lat, S.pos.lon, e.lat, e.lon) : 0, precio: e.p[c.fuel] || 0 }));
   fs.forEach((e) => (e.total = coste(e)));
   fs.sort((a, b) => (a.precio || 9e9) - (b.precio || 9e9));
-  let h = '<h3 style="margin:6px 4px">⛽ Gasolineras favoritas</h3>';
+  let h = avisosAlertas() + '<h3 style="margin:6px 4px">⛽ Gasolineras favoritas</h3>';
   h += fs.length ? fs.map((e) => (e.precio ? tarjeta(e, cortesDe(fs.filter((x) => x.precio))) : '')).join('') : '<div class="empty">Toca ☆ en una gasolinera para guardarla aquí y ver su precio de un vistazo.</div>';
   const evs = (S.pts || []).filter((p) => S.favsEv.has(p[9]));
   if (S.favsEv.size) {
@@ -1031,13 +1042,13 @@ async function renderTend() {
   const r = await resumen();
   const c = S.cfg;
   const prov = S.pos?.prov;
-  let h = '';
+  let h = diarioHTML();
   // Comparativa coste por 100 km
   const zona = S.pos ? S.est.filter((e) => e.p.g95 && dist(S.pos.lat, S.pos.lon, e.lat, e.lon) <= 10) : [];
   const g95 = zona.length ? zona.reduce((a, e) => a + e.p.g95, 0) / zona.length / 1000 : null;
-  h += `<h2 style="margin:0 0 8px">Tus dos coches: coste por 100 km</h2><div class="stat">
-    <div><b>${g95 ? eur((c.consumo * g95)) : '—'}</b><span>Híbrido · ${c.consumo} L/100 km${g95 ? ' a ' + g95.toLocaleString('es-ES', { maximumFractionDigits: 3 }) + ' €/L' : ''}</span></div>
-    <div><b>${eur(c.evConsumo * c.kwhCasa)}</b><span>${esc(c.evModelo)} en casa · ${c.evConsumo} kWh a ${eur(c.kwhCasa, 2)}</span></div>
+  h += `<h2 style="margin:22px 0 8px">Tus dos coches: coste por 100 km</h2><div class="stat">
+    <div><b>${g95 ? eur((c.consumo * g95)) : '—'}</b><span>Híbrido · ${fmtN(c.consumo, 1)} L/100 km${g95 ? ' a ' + g95.toLocaleString('es-ES', { maximumFractionDigits: 3 }) + ' €/L' : ''}</span></div>
+    <div><b>${eur(c.evConsumo * c.kwhCasa)}</b><span>${esc(c.evModelo)} en casa · ${fmtN(c.evConsumo, 1)} kWh a ${eur(c.kwhCasa, 2)}</span></div>
     <div><b>${eur(c.evConsumo * c.kwhDC)}</b><span>${esc(c.evModelo)} en carga rápida pública · ~${eur(c.kwhDC)}/kWh</span></div>
     <div><b>${g95 ? eur(c.consumo * g95 - c.evConsumo * c.kwhCasa) : '—'}</b><span>Ahorro cada 100 km usando el eléctrico cargado en casa</span></div></div>`;
   if (!r || !r.d?.length) {
@@ -1128,6 +1139,10 @@ function renderAjustes() {
     <h2>📍 Ubicación</h2>
     <div class="box"><div class="kv"><span>Estado</span><span>${S.geoError === 1 ? '❌ Sin permiso' : S.pos?.gps ? '✅ Funciona' : S.geoError ? '⚠️ Sin señal' : '—'}</span></div>
     <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="geoReintentar">Probar ubicación</button><button class="btn alt" id="geoAyuda">Cómo dar permiso</button></div></div>
+    <h2>💾 Copia de seguridad</h2>
+    <div class="box"><div class="muted">Tus favoritas, ajustes, tarifas, alertas y diario se guardan solo en este móvil. Haz una copia para no perderlos si cambias de móvil o borras la app.</div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="exportar">Guardar copia</button><button class="btn alt" id="importar">Recuperar copia</button></div>
+    <input type="file" id="importarFich" accept="application/json,.json" hidden></div>
     <h2>🔄 Versión</h2>
     <div class="box"><div class="kv"><span>GasoCerca</span><span><b>v${APP_VERSION}</b></span></div>
     <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="btn alt" id="buscarAct">Buscar actualizaciones</button><button class="btn alt" id="verNovedades">Novedades</button><button class="btn alt" id="verTour">Ver tutorial</button></div></div>
@@ -1175,6 +1190,17 @@ document.addEventListener('click', (ev) => {
     t.classList.toggle('on'); t.textContent = S.favsEv.has(id) ? '★' : '☆'; render(); return;
   }
   if (t.dataset.radio) { c.radio = +t.dataset.radio; saveCfg(); render(); return; }
+  if (t.dataset.apuntar) { apuntarDesde(t.dataset.apuntar, t.dataset.id); return; }
+  if (t.dataset.dcoche) { document.querySelectorAll('[data-dcoche]').forEach((b) => b.classList.toggle('on', b === t)); ajustaFormCoche(t.dataset.dcoche); return; }
+  if (t.dataset.borrarent) { if (confirm('¿Borrar este apunte?')) { S.diario = S.diario.filter((x) => String(x.id) !== t.dataset.borrarent); save('diario', S.diario); render(); } return; }
+  if (t.dataset.alerta) {
+    const v = parseFloat(String($('#alertaIn').value).replace(',', '.'));
+    if (!(v > 0.3 && v < 4)) { toast('Escribe un precio en €/L, por ejemplo 1,49'); return; }
+    S.alertas[t.dataset.alerta] = { f: c.fuel, p: Math.round(v * 1000) }; save('alertas', S.alertas);
+    const id = +t.dataset.alerta; if (!S.favs.has(id)) { S.favs.add(id); save('favs', [...S.favs]); }
+    toast('Alerta guardada (y añadida a favoritas)'); detalle(id); render(); return;
+  }
+  if (t.dataset.alertadel) { delete S.alertas[t.dataset.alertadel]; save('alertas', S.alertas); toast('Alerta quitada'); detalle(+t.dataset.alertadel); render(); return; }
   if (t.dataset.marca) { t.classList.toggle('on'); return; }
   if (t.dataset.tarifa) {
     const v = parseFloat(String($('#tarifaIn').value).replace(',', '.'));
@@ -1224,6 +1250,12 @@ document.addEventListener('click', (ev) => {
     case 'verNovedades': mostrarNovedades(APP_VERSION); break;
     case 'verTour': tour.iniciar(); break;
     case 'instalar': S.installEvt?.prompt(); S.installEvt = null; break;
+    case 'exportar': exportarCopia(); break;
+    case 'importar': $('#importarFich').click(); break;
+    case 'nuevoRep': formDiario({ c: 'h' }); break;
+    case 'nuevaCarga': formDiario({ c: 'e', lugar: 'Casa', pu: c.kwhCasa }); break;
+    case 'guardarDiario': guardarDiario(); break;
+    case 'usarConsumo': c[t.dataset.campo] = +t.dataset.valor; saveCfg(); toast('Consumo actualizado'); render(); break;
     case 'borrar': if (confirm('¿Borrar ajustes y favoritas?')) { Object.keys(localStorage).filter((k) => k.startsWith('gc.')).forEach((k) => localStorage.removeItem(k)); location.reload(); } break;
   }
 });
@@ -1308,7 +1340,7 @@ const tour = (() => {
     { sel: '.bottom [data-v=ruta]', t: '🛣️ Ruta', x: '¿Te vas de viaje? Dime adónde vas y te enseño las gasolineras o cargadores <b>de camino</b>, con los minutos de desvío y a qué hora pasas por cada una.' },
     { sel: '.bottom [data-v=mapa]', t: '🗺️ Mapa', x: 'Todas las gasolineras con su precio sobre el mapa. Toca una etiqueta para ver los detalles.' },
     { sel: '.bottom [data-v=favs]', t: '★ Favoritas', x: 'Las gasolineras y cargadores que guardes, con su precio actual, estés donde estés.' },
-    { sel: '.bottom [data-v=tend]', t: '📈 Tendencia', x: 'Cómo evolucionan los precios en tu provincia, si es <b>buen momento para repostar</b> y cuánto te cuesta cada coche por 100 km.' },
+    { sel: '.bottom [data-v=tend]', t: '📊 Gastos', x: 'Apunta tus repostajes y recargas (con «He repostado aquí» en cada ficha) y verás <b>cuánto gastas al mes</b>, cuánto <b>ahorras</b> y el <b>consumo real</b> de cada coche. También cómo evolucionan los precios.' },
     { sel: '.bottom [data-v=ajustes]', t: '⚙️ Ajustes', x: 'Pon los datos de tus coches (litros, consumo, batería, conectores…), edita la lista de marcas low cost y busca actualizaciones.' },
     { sel: null, t: '🚀 ¡Listo!', x: 'Consejo: <b>añádela a la pantalla de inicio</b> para abrirla como una app más.<br>• iPhone: <b>Compartir → Añadir a pantalla de inicio</b>.<br>• Android: menú <b>⋮ → Instalar aplicación</b>.<br><br>Puedes repetir este tutorial en <b>Ajustes → Ver tutorial</b>.' },
   ];
@@ -1643,6 +1675,195 @@ function renderRuta(soloLista = false) {
 
 // ---------------------------------------------------------------- Arranque
 // Al final del archivo: así todo (ruta, tutorial…) está definido antes de pintar por primera vez
+(() => {
+  // accesos directos del icono: ?v=ruta / ?modo=ev
+  const q = new URLSearchParams(location.search);
+  if (['lista', 'ruta', 'mapa', 'favs', 'tend', 'ajustes'].includes(q.get('v'))) S.cfg.vista = q.get('v');
+  if (['fuel', 'ev'].includes(q.get('modo'))) S.cfg.modo = q.get('modo');
+  if (q.has('v') || q.has('modo')) { saveCfg(); history.replaceState(null, '', location.pathname); }
+})();
 render();
 datos();
 if (!S.pos || S.pos.gps) localizar(true);
+
+// ---------------------------------------------------------------- Diario de repostajes y recargas
+const hoyISO = () => fechaHoy();
+const num2 = (v) => parseFloat(String(v ?? '').replace(',', '.'));
+const fmtN = (n, d = 2) => (Number.isFinite(n) ? n.toLocaleString('es-ES', { maximumFractionDigits: d }) : '');
+function apuntarDesde(tipo, id) {
+  const c = S.cfg;
+  if (tipo === 'est') {
+    const e = S.est.find((x) => x.id == id);
+    if (!e) return;
+    const f = e.p[c.fuel] ? c.fuel : Object.keys(e.p)[0];
+    // media de la zona ese día para calcular el ahorro
+    const zona = S.est.filter((x) => x.p[f] && dist(e.lat, e.lon, x.lat, x.lon) <= 5);
+    const media = zona.length ? zona.reduce((a, x) => a + x.p[f], 0) / zona.length / 1000 : null;
+    formDiario({ c: 'h', lugar: nombreMarca(marca(e.rot)) + ' · ' + nombreLoc(e.loc), estId: e.id, comb: f, pu: e.p[f] / 1000, cant: c.litros, media });
+  } else {
+    const p = (S.pts || []).find((x) => x[9] === id);
+    if (!p) return;
+    const pt = { lat: p[0], lon: p[1], name: p[2], op: p[3], sk: p[4], kw: p[5], fee: p[6], id: p[9], osm: p[10] ?? null, d: 0 };
+    pt.compat = pt.sk.filter((s) => c.conectores.includes(s[0]));
+    if (!pt.sk.length) pt.compat = [['t2', 1, 0]];
+    const t = tiempoCarga(pt);
+    formDiario({ c: 'e', lugar: pt.name || pt.op || 'Punto de recarga', estId: id, pu: t ? t.precio : c.kwhDC, cant: Math.round(0.7 * c.bat * 10) / 10 });
+  }
+}
+function formDiario(d) {
+  const c = S.cfg;
+  S.formD = { ...d };
+  abrirHoja(`<h2>📒 Apuntar ${d.c === 'e' ? 'recarga' : 'repostaje'}</h2>
+    <div class="rform dform">
+      <div class="seg dseg"><button type="button" data-dcoche="h" class="${d.c !== 'e' ? 'on' : ''}">🚗 Híbrido</button><button type="button" data-dcoche="e" class="${d.c === 'e' ? 'on' : ''}">⚡ ${esc(c.evModelo)}</button></div>
+      <label>Dónde</label><input id="dLugar" type="text" value="${esc(d.lugar || '')}" placeholder="${d.c === 'e' ? 'Casa, Zunder…' : 'Gasolinera'}">
+      <div class="rgrid">
+        <div><label>Fecha</label><input id="dFecha" type="date" value="${hoyISO()}" max="${hoyISO()}"></div>
+        <div><label id="dCantL">${d.c === 'e' ? 'kWh' : 'Litros'}</label><input id="dCant" type="text" inputmode="decimal" value="${fmtN(d.cant, 2)}"></div>
+        <div><label id="dPuL">${d.c === 'e' ? '€/kWh' : '€/litro'}</label><input id="dPu" type="text" inputmode="decimal" value="${fmtN(d.pu, 3)}"></div>
+        <div><label>Total €</label><input id="dTot" type="text" inputmode="decimal" value="${d.cant && d.pu != null ? fmtN(d.cant * d.pu, 2) : ''}"></div>
+      </div>
+      <label>Cuentakilómetros (opcional, para el consumo real)</label><input id="dKm" type="text" inputmode="numeric" placeholder="Ej.: 48250">
+      <label class="chk"><input id="dLleno" type="checkbox" checked> <span id="dLlenoL">${d.c === 'e' ? 'He cargado hasta el nivel habitual' : 'He llenado el depósito'}</span></label>
+      <button class="btn" id="guardarDiario" style="width:100%;margin-top:12px">Guardar</button>
+      <p class="muted" style="margin-top:8px">Si escribes el total, se calculan los litros. Con el cuentakilómetros y el depósito lleno, la app calcula tu consumo real.</p>
+    </div>`);
+  const cant = $('#dCant'), pu = $('#dPu'), tot = $('#dTot');
+  const deCant = () => { const a = num2(cant.value), b = num2(pu.value); if (a > 0 && b >= 0) tot.value = fmtN(a * b, 2); };
+  cant.addEventListener('input', deCant); pu.addEventListener('input', deCant);
+  tot.addEventListener('input', () => { const t = num2(tot.value), b = num2(pu.value); if (t > 0 && b > 0) cant.value = fmtN(t / b, 2); });
+}
+function ajustaFormCoche(cc) {
+  S.formD.c = cc;
+  $('#dCantL').textContent = cc === 'e' ? 'kWh' : 'Litros';
+  $('#dPuL').textContent = cc === 'e' ? '€/kWh' : '€/litro';
+  $('#dLlenoL').textContent = cc === 'e' ? 'He cargado hasta el nivel habitual' : 'He llenado el depósito';
+  S.formD.media = null; S.formD.comb = cc === 'e' ? 'kwh' : S.formD.comb || S.cfg.fuel;
+}
+function guardarDiario() {
+  const d = S.formD || {};
+  const cant = num2($('#dCant').value), pu = num2($('#dPu').value);
+  let tot = num2($('#dTot').value);
+  if (!(cant > 0)) { toast(d.c === 'e' ? 'Escribe los kWh' : 'Escribe los litros'); return; }
+  if (!(pu >= 0)) { toast('Escribe el precio por ' + (d.c === 'e' ? 'kWh' : 'litro')); return; }
+  if (!(tot >= 0)) tot = cant * pu;
+  const km = parseInt(String($('#dKm').value).replace(/\D/g, ''), 10);
+  const ent = {
+    id: Date.now(), f: $('#dFecha').value || hoyISO(), c: d.c === 'e' ? 'e' : 'h', lugar: $('#dLugar').value.trim(),
+    estId: d.estId ?? null, comb: d.c === 'e' ? 'kwh' : d.comb || S.cfg.fuel, cant, pu, tot: Math.round(tot * 100) / 100,
+    km: km > 0 ? km : null, lleno: $('#dLleno').checked, media: d.c === 'e' ? null : d.media ?? null,
+  };
+  S.diario = [...S.diario, ent].sort((a, b) => (a.f < b.f ? -1 : a.f > b.f ? 1 : a.id - b.id));
+  save('diario', S.diario);
+  cerrarHoja();
+  const ah = ent.media ? (ent.media - ent.pu) * ent.cant : 0;
+  toast(ah > 0.2 ? `Apuntado. Has ahorrado ${eur(ah)} frente a la media de la zona` : 'Apuntado en tu diario');
+  render();
+}
+// consumo real entre llenados completos con cuentakilómetros
+function consumoReal(coche) {
+  const xs = S.diario.filter((x) => x.c === coche).sort((a, b) => (a.km ?? 0) - (b.km ?? 0) || (a.f < b.f ? -1 : 1));
+  let ini = null, cant = 0, euros = 0, kmT = 0, cantT = 0, eurT = 0;
+  for (const x of xs) {
+    if (ini && x.km) { cant += x.cant; euros += x.tot; }
+    if (x.km && x.lleno) {
+      if (ini && x.km > ini.km) { kmT += x.km - ini.km; cantT += cant; eurT += euros; }
+      ini = x; cant = 0; euros = 0;
+    }
+  }
+  return kmT >= 50 ? { porCien: (cantT / kmT) * 100, eurCien: (eurT / kmT) * 100, km: kmT } : null;
+}
+function diarioHTML() {
+  const c = S.cfg;
+  const D = S.diario;
+  let h = `<div class="dcab"><h2 style="margin:0">📒 Mis repostajes y recargas</h2></div>
+    <div class="duo" style="margin:8px 0 4px"><button class="btn" id="nuevoRep">+ Repostaje</button><button class="btn alt" id="nuevaCarga">+ Recarga</button></div>`;
+  if (!D.length) return h + `<div class="box muted">Aún no has apuntado nada. Abre una gasolinera o un cargador y toca <b>«He repostado aquí»</b> o <b>«He cargado aquí»</b>, o usa los botones de arriba (por ejemplo, para la carga en casa). Verás aquí cuánto gastas al mes, cuánto ahorras y el consumo real de cada coche.</div>`;
+  const mes = hoyISO().slice(0, 7);
+  const d0 = new Date(); d0.setDate(1); d0.setMonth(d0.getMonth() - 1);
+  const mesPas = `${d0.getFullYear()}-${String(d0.getMonth() + 1).padStart(2, '0')}`;
+  const suma = (fn) => D.filter(fn).reduce((a, x) => a + x.tot, 0);
+  const esteH = suma((x) => x.f.startsWith(mes) && x.c === 'h'), esteE = suma((x) => x.f.startsWith(mes) && x.c === 'e');
+  const pasado = suma((x) => x.f.startsWith(mesPas));
+  const anio = suma((x) => x.f.startsWith(mes.slice(0, 4)));
+  const conMedia = D.filter((x) => x.media);
+  const ahorro = conMedia.reduce((a, x) => a + (x.media - x.pu) * x.cant, 0);
+  h += `<div class="stat">
+    <div><b>${eur(esteH + esteE)}</b><span>Este mes · 🚗 ${eur(esteH, 0)} · ⚡ ${eur(esteE, 0)}</span></div>
+    <div><b>${eur(pasado)}</b><span>Mes pasado</span></div>
+    <div><b class="${ahorro >= 0 ? 'down' : 'up'}">${conMedia.length ? (ahorro >= 0 ? '' : '−') + eur(Math.abs(ahorro)) : '—'}</b><span>${conMedia.length ? (ahorro >= 0 ? 'Ahorrado' : 'Pagado de más') + ` frente a la media de la zona (${conMedia.length} ${conMedia.length === 1 ? 'repostaje' : 'repostajes'})` : 'Ahorro: apunta desde la ficha de la gasolinera'}</span></div>
+    <div><b>${eur(anio)}</b><span>En ${mes.slice(0, 4)}</span></div></div>`;
+  // consumo real
+  const cr = [['h', 'consumo', 'L/100 km', '🚗 Híbrido'], ['e', 'evConsumo', 'kWh/100 km', '⚡ ' + esc(c.evModelo)]].map(([k, campo, u, nom]) => {
+    const r = consumoReal(k);
+    if (!r) return '';
+    const v = Math.round(r.porCien * 10) / 10;
+    return `<div class="kv"><span>${nom}: <b>${fmtN(v, 1)} ${u}</b> · ${eur(r.eurCien)}/100 km</span>${Math.abs(v - c[campo]) >= 0.2 ? `<button class="tag" id="usarConsumo" data-campo="${campo}" data-valor="${v}">Usar en cálculos</button>` : '<span class="muted">✓ en uso</span>'}</div>`;
+  }).join('');
+  h += `<div class="box"><h3>⛽ Consumo real</h3>${cr || '<div class="muted">Apunta el cuentakilómetros en dos llenados completos seguidos y aquí verás el consumo real de cada coche y lo que te cuesta cada 100 km.</div>'}</div>`;
+  // gráfica de los últimos 6 meses
+  const meses = [];
+  for (let i = 5; i >= 0; i--) { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i); meses.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); }
+  const vals = meses.map((m) => [suma((x) => x.f.startsWith(m) && x.c === 'h'), suma((x) => x.f.startsWith(m) && x.c === 'e')]);
+  const mx = Math.max(1, ...vals.map((v) => v[0] + v[1]));
+  const W = 340, H = 140, bw = 38, gap = (W - 20 - bw * 6) / 5;
+  let g = '';
+  vals.forEach(([a, b], i) => {
+    const x = 10 + i * (bw + gap), ha = (a / mx) * (H - 40), hb = (b / mx) * (H - 40);
+    g += `<rect x="${x}" y="${H - 20 - ha}" width="${bw}" height="${ha}" rx="3" fill="var(--acc)"/>`;
+    g += `<rect x="${x}" y="${H - 20 - ha - hb}" width="${bw}" height="${hb}" rx="3" fill="var(--ev)"/>`;
+    if (a + b) g += `<text x="${x + bw / 2}" y="${H - 24 - ha - hb}" font-size="10" text-anchor="middle" fill="var(--ink)">${Math.round(a + b)} €</text>`;
+    g += `<text x="${x + bw / 2}" y="${H - 6}" font-size="10" text-anchor="middle" fill="var(--muted)">${new Date(meses[i] + '-15').toLocaleDateString('es-ES', { month: 'short' })}</text>`;
+  });
+  h += `<div class="box"><h3>📊 Gasto por mes</h3><svg class="chart" viewBox="0 0 ${W} ${H}">${g}</svg><div class="legend"><span><i style="background:var(--acc)"></i>Híbrido</span><span><i style="background:var(--ev)"></i>Eléctrico</span></div></div>`;
+  // últimos apuntes
+  h += `<div class="box"><h3>🧾 Últimos apuntes</h3>${[...D].reverse().slice(0, 15).map((x) => `<div class="kv ent"><span>${x.c === 'e' ? '⚡' : '🚗'} <b>${new Date(x.f + 'T12:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}</b> · ${esc(x.lugar || '—')}<small>${fmtN(x.cant, 1)} ${x.c === 'e' ? 'kWh' : 'L'} a ${fmtN(x.pu, 3)} €${x.km ? ' · ' + x.km.toLocaleString('es-ES') + ' km' : ''}${x.media ? ` · <span class="${x.media >= x.pu ? 'down' : 'up'}">${x.media >= x.pu ? 'ahorro' : 'de más'} ${eur(Math.abs((x.media - x.pu) * x.cant))}</span>` : ''}</small></span><span><b>${eur(x.tot)}</b> <button class="tag" data-borrarent="${x.id}" aria-label="Borrar">✕</button></span></div>`).join('')}</div>`;
+  return h;
+}
+
+// ---------------------------------------------------------------- Alertas de precio
+function alertasCumplidas() {
+  const out = [];
+  for (const [id, a] of Object.entries(S.alertas)) {
+    const e = S.est.find((x) => x.id == id);
+    if (e && e.p[a.f] && e.p[a.f] <= a.p) out.push({ e, a, precio: e.p[a.f] });
+  }
+  return out;
+}
+function avisosAlertas() {
+  return alertasCumplidas().map(({ e, a, precio }) => `<div class="alerta">🔔 <b>${esc(nombreMarca(marca(e.rot)))}</b> (${esc(nombreLoc(e.loc))}) tiene ${FUEL_NAMES[a.f]} a <b>${pr(precio)} €</b>, por debajo de tu objetivo de ${pr(a.p)} €. <button data-est="${e.id}">Ver</button></div>`).join('');
+}
+function alertaHTML(e) {
+  const a = S.alertas[e.id];
+  const c = S.cfg;
+  if (!e.p[c.fuel] && !a) return '';
+  return `<div class="box"><h3>🔔 Alerta de precio</h3>${a
+    ? `<div class="kv"><span>Te aviso si ${FUEL_NAMES[a.f]} baja de</span><span><b>${pr(a.p)} €</b> <button class="tag" data-alertadel="${e.id}">Quitar</button></span></div><div class="muted">Ahora está a ${e.p[a.f] ? pr(e.p[a.f]) + ' €' : '—'}. El aviso sale al abrir la app.</div>`
+    : `<div class="muted">Avísame cuando ${FUEL_NAMES[c.fuel]} baje de:</div><div class="tarifa"><input id="alertaIn" type="text" inputmode="decimal" placeholder="${pr(Math.max(0, e.p[c.fuel] - 30))}"><span>€/L</span><button class="btn" data-alerta="${e.id}">Guardar</button></div>`}</div>`;
+}
+
+// ---------------------------------------------------------------- Copia de seguridad
+async function exportarCopia() {
+  const datos_ = { app: 'GasoCerca', version: APP_VERSION, fecha: new Date().toISOString(), datos: {} };
+  for (const k of Object.keys(localStorage)) if (k.startsWith('gc.')) datos_.datos[k] = localStorage.getItem(k);
+  const nombre = `gasocerca-copia-${hoyISO()}.json`;
+  const fich = new File([JSON.stringify(datos_, null, 1)], nombre, { type: 'application/json' });
+  try {
+    if (navigator.canShare?.({ files: [fich] })) { await navigator.share({ files: [fich], title: 'Copia de GasoCerca' }); return; }
+  } catch (e) { if (e.name === 'AbortError') return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(fich); a.download = nombre; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast('Copia guardada en Descargas');
+}
+document.addEventListener('change', async (ev) => {
+  if (ev.target.id !== 'importarFich' || !ev.target.files[0]) return;
+  try {
+    const j = JSON.parse(await ev.target.files[0].text());
+    if (j.app !== 'GasoCerca' || !j.datos) throw new Error('formato');
+    if (!confirm(`¿Recuperar la copia del ${new Date(j.fecha).toLocaleDateString('es-ES')}? Se sustituirán tus datos actuales.`)) return;
+    Object.keys(localStorage).filter((k) => k.startsWith('gc.')).forEach((k) => localStorage.removeItem(k));
+    for (const [k, v] of Object.entries(j.datos)) if (k.startsWith('gc.')) localStorage.setItem(k, v);
+    location.reload();
+  } catch { toast('Ese archivo no es una copia de GasoCerca'); }
+});

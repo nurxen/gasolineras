@@ -266,3 +266,21 @@ body.ev .refresh { color: var(--ev); }
 }
 .geoaviso + .geoaviso { margin-top: 6px; }
 .field select { width: auto; min-width: 110px; max-width: 62%; }
+
+/* ---------- v1.6: diario, alertas ---------- */
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: -4px 0 8px; }
+.duo .btn { padding: 10px 8px; font-size: 14px; }
+.dseg { margin: 4px 0 2px; width: 100%; }
+.dseg button { flex: 1; padding: 9px 6px; }
+.dform .chk { display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 600; margin-top: 12px; }
+.dform .chk input { width: 22px; height: 22px; accent-color: var(--acc); }
+.kv.ent { align-items: center; border-bottom: 1px solid var(--line); padding: 7px 0; }
+.kv.ent:last-child { border-bottom: 0; }
+.kv.ent small { display: block; color: var(--muted); font-size: 12.5px; }
+.kv.ent > span:last-child { white-space: nowrap; }
+.alerta { margin: 10px 10px 0; padding: 10px 12px; border-radius: 12px; background: #ede9fe; color: #5b21b6; font-size: 14px; }
+@media (prefers-color-scheme: dark) { .alerta { background: #2e1f5e; color: #ddd6fe; } }
+.alerta button { text-decoration: underline; font-weight: 750; color: inherit; padding: 0; }
+#favs .alerta { margin: 4px 0 8px; }
+.bottom button.aviso i { position: relative; }
+.bottom button.aviso i::after { content: ''; position: absolute; top: -2px; right: -6px; width: 9px; height: 9px; border-radius: 50%; background: #ef4444; border: 2px solid var(--card); }
