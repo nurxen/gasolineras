@@ -334,18 +334,6 @@ details.mas[open] > summary::after { content: ' ▴'; }
 .faq summary { padding: 13px 2px; font-weight: 700; cursor: pointer; font-size: 15.5px; }
 .faq p { margin: 0 0 12px; line-height: 1.5; color: var(--ink); }
 .faq .lnk { text-decoration: underline; font-weight: 700; color: var(--acc); padding: 0; }
-/* letra grande */
-body.grande { font-size: 17px; }
-body.grande .card .nm { font-size: 18.5px; }
-body.grande .card .sub { font-size: 15px; }
-body.grande .tag { font-size: 14px; }
-body.grande .price { font-size: 25px; }
-body.grande .chip, body.grande .seg button { font-size: 15.5px; }
-body.grande .banner b { font-size: 18px; }
-body.grande .banner small { font-size: 15px; }
-body.grande .bottom button { font-size: 12.5px; }
-body.grande .bottom button i { font-size: 23px; }
-body.grande .sheet, body.grande .box .kv, body.grande .muted { font-size: 15.5px; }
-body.grande .ir { font-size: 16px; padding: 8px 16px; }
 .field input[type="text"]:not([inputmode]) { width: 55%; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); text-align: right; }
 .top .seg[hidden] { display: none; }
+.sug .sug-mapa { background: color-mix(in srgb, var(--acc) 8%, var(--card)); color: var(--acc); }

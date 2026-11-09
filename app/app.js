@@ -3,12 +3,17 @@
 'use strict';
 
 // ---------------------------------------------------------------- Constantes
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 const NOVEDADES = {
+  '1.9.0': [
+    '🧭 <b>Tutorial a medida</b>: corto (6 pasos) en el modo sencillo y completo en el modo completo.',
+    '📱 En iPhone, el asistente explica <b>cómo dar permiso de ubicación</b> si el móvil no lo pregunta (Ajustes → Sitios web de Safari).',
+    '🔎 Buscador: mientras escribes salen los pueblos con gasolinera; para buscar <b>cualquier calle o sitio</b>, toca «Buscar en el mapa».',
+    'ℹ️ En la ayuda: de dónde salen los precios, privacidad y aviso legal.',
+  ],
   '1.8.0': [
     '😊 <b>Modo sencillo</b> para quien empieza: solo lo importante (precios cerca, un botón grande para ir y favoritas). Tú sigues con el <b>modo completo</b>; puedes cambiarlo en Ajustes.',
     '🧭 Botón <b>«Ir»</b> en cada gasolinera para que el móvil te lleve directamente.',
-    '🔍 Opción de <b>letra grande</b> en Ajustes.',
     '❓ Botón de <b>ayuda</b> arriba con las dudas más habituales explicadas fácil.',
   ],
   '1.7.0': [
@@ -93,7 +98,7 @@ const DEF = {
   velMedia: 25, valorHora: 10, // para valorar el tiempo del desplazamiento
   litros: 40, consumo: 6, // coche de combustión
   tieneComb: true, tieneEV: false, combNombre: '', setupHecho: false,
-  sencillo: true, letraGrande: false, // modo sencillo por defecto para quien empieza
+  sencillo: true, // modo sencillo por defecto para quien empieza
   evRadio: 10, conectores: ['ccs', 't2', 't2c'], potMin: 0, gratis: false, evOrden: 'dist', sinDatos: true,
   evModelo: '', bat: 50, acKw: 7.4, dcKw: 50, evConsumo: 15, kwhCasa: 0.15,
   kwhAC: 0.39, kwhDC: 0.49, kwhHPC: 0.59, tarifas: {}, // €/kWh orientativos por tipo de cargador y tarifas propias
@@ -365,7 +370,7 @@ const enPantallaInicio = () => matchMedia('(display-mode: standalone)').matches 
 function pasosUbicacion() {
   if (esIOS()) return `<ol class="pasos">
       <li>Abre <b>Ajustes</b> del iPhone → <b>Privacidad y seguridad</b> → <b>Localización</b>. Comprueba que está <b>activada</b>.</li>
-      <li>En esa misma lista baja hasta <b>Sitios web de Safari</b> y elige <b>Al usar la app</b>. Activa también <b>Ubicación exacta</b>.</li>
+      <li>En esa misma lista baja hasta <b>Sitios web de Safari</b> y elige <b>Al usar la app</b> (o <b>Preguntar la próxima vez</b>). Activa también <b>Ubicación exacta</b>. <i>Este suele ser el motivo.</i></li>
       <li>Vuelve a <b>Ajustes</b> → <b>Apps</b> → <b>Safari</b> → <b>Ubicación</b> y elige <b>Preguntar</b> o <b>Permitir</b>.</li>
       <li>Abre esta web en <b>Safari</b>, toca el botón <b>aA</b> (o ⋯) de la barra de direcciones → <b>Ajustes del sitio web</b> → <b>Ubicación</b> → <b>Permitir</b>.</li>
       ${enPantallaInicio() ? '<li>Si usas el icono de la pantalla de inicio y sigue sin funcionar: bórralo, abre la web en Safari, acepta la ubicación y vuelve a añadirla con <b>Compartir → Añadir a pantalla de inicio</b>.</li>' : ''}
@@ -464,32 +469,35 @@ async function buscarOSM(q) {
 // Autocompletado reutilizable (cabecera y modo ruta)
 function autocompletar(input, caja, alElegir, { gps = true } = {}) {
   let tmr, ultimo = [];
-  const pinta = (lista, cargando) => {
+  const pinta = (lista, cargando, enMapa) => {
     const q = input.value.trim();
     let h = '';
     if (gps) h += `<button type="button" data-i="gps">📍 <b>Usar mi ubicación (GPS)</b></button>`;
     h += lista.map((r, i) => `<button type="button" data-i="${i}">${r.osm ? '🗺️' : '⛽'} <b>${esc(r.nombre)}</b>${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</button>`).join('');
     if (cargando) h += '<div class="sug-info">Buscando en el mapa…</div>';
-    else if (q.length >= 2 && !lista.length) h += '<div class="sug-info">No encuentro ese sitio. Prueba con otro nombre o con el código postal.</div>';
+    else if (q.length >= 3 && !enMapa) h += `<button type="button" data-i="mapa" class="sug-mapa">🔎 <b>Buscar «${esc(q)}» en el mapa</b><small>Calles, pueblos sin gasolinera, sitios…</small></button>`;
+    else if (enMapa && !lista.length) h += '<div class="sug-info">No encuentro ese sitio. Prueba con otro nombre o con el código postal.</div>';
     caja.innerHTML = h; caja.classList.toggle('on', !!h);
     ultimo = lista;
   };
-  const buscar = async () => {
+  // Nominatim (OpenStreetMap) no permite consultas mientras se escribe: solo cuando el usuario lo pide
+  const buscarMapa = async () => {
     const q = input.value.trim();
+    if (q.length < 3) return;
     const loc = buscarLocal(q);
-    if (q.length < 3) return pinta(loc);
     pinta(loc, true);
     const osm = await buscarOSM(q);
     if (input.value.trim() !== q) return;
     const vistos = new Set(loc.map((r) => norm(r.nombre)));
-    pinta([...loc, ...osm.filter((r) => !vistos.has(norm(r.nombre)))].slice(0, 8));
+    pinta([...loc, ...osm.filter((r) => !vistos.has(norm(r.nombre)))].slice(0, 8), false, true);
   };
-  input.addEventListener('input', () => { clearTimeout(tmr); tmr = setTimeout(buscar, 350); pinta(buscarLocal(input.value)); });
+  input.addEventListener('input', () => { clearTimeout(tmr); tmr = setTimeout(() => pinta(buscarLocal(input.value)), 120); });
   input.addEventListener('focus', () => pinta(buscarLocal(input.value)));
   input.addEventListener('blur', () => setTimeout(() => caja.classList.remove('on'), 250));
   caja.addEventListener('pointerdown', (e) => e.preventDefault()); // que no se pierda el foco al tocar
   caja.addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.i === 'mapa') { buscarMapa(); return; }
     const r = b.dataset.i === 'gps' ? { gps: true } : ultimo[+b.dataset.i];
     caja.classList.remove('on'); input.blur();
     alElegir(r);
@@ -629,7 +637,6 @@ function render() {
   if (!S.cfg.tieneEV && S.cfg.modo === 'ev') S.cfg.modo = 'fuel';
   if (S.cfg.sencillo && S.cfg.vista === 'tend') S.cfg.vista = 'lista';
   document.body.classList.toggle('sencillo', !!S.cfg.sencillo);
-  document.body.classList.toggle('grande', !!S.cfg.letraGrande);
   $('.seg [data-modo=ev]').hidden = !S.cfg.tieneEV;
   $('.top .seg').hidden = !S.cfg.tieneEV || !S.cfg.tieneComb; // con un solo coche no hace falta elegir modo
   document.body.classList.toggle('ev', S.cfg.modo === 'ev');
@@ -1213,7 +1220,6 @@ function renderAjustes() {
     <h2>👀 Cómo ver la app</h2>
     <div class="seg modoapp"><button data-sencillo="1" class="${c.sencillo ? 'on' : ''}">😊 Sencilla</button><button data-sencillo="0" class="${c.sencillo ? '' : 'on'}">🧰 Completa</button></div>
     <div class="muted" style="margin:6px 2px 8px">${c.sencillo ? 'Ves solo lo importante: precios cerca, cómo llegar y favoritas.' : 'Ves todos los filtros, gastos, alertas y estadísticas.'}</div>
-    ${campo('letraGrande', '🔍 Letra más grande', 'check')}
     <h2>🚗 Coche de gasolina, diésel o híbrido</h2>
     ${campo('tieneComb', 'Tengo un coche de gasolina o diésel', 'check')}
     ${c.tieneComb ? `${campo('combNombre', 'Nombre (opcional)', 'text')}
@@ -1368,7 +1374,7 @@ document.addEventListener('change', (ev) => {
     if ((k === 'tieneEV' || k === 'tieneComb') && !c.tieneEV && !c.tieneComb) { c[k] = true; saveCfg(); toast('Necesitas al menos un coche'); render(); return; }
     toast('Guardado');
     if (k === 'fuel') renderChips();
-    if (k === 'tieneEV' || k === 'tieneComb' || k === 'letraGrande') render();
+    if (k === 'tieneEV' || k === 'tieneComb') render();
   }
 });
 const acCab = autocompletar($('#q'), $('#sug'), irALugar);
@@ -1426,8 +1432,8 @@ function mostrarNovedades(v) {
 // ---------------------------------------------------------------- Tutorial
 const tour = (() => {
   // sel: elemento a iluminar (null = mensaje centrado). antes: prepara la pantalla.
-  const PASOS = [
-    { sel: null, t: '👋 ¡Bienvenido a GasoCerca!', x: () => (S.cfg.sencillo ? 'Te enseño lo básico en 30 segundos. Es muy fácil: <b>abres la app y ves lo que tienes cerca y a qué precio</b>.' : 'Te enseño en un minuto dónde está cada cosa. Puedes saltarlo y repetirlo cuando quieras desde <b>Ajustes</b>.') },
+  const PASOS_C = [
+    { sel: null, t: '👋 ¡Bienvenido a GasoCerca!', x: 'Te enseño en un minuto dónde está cada cosa. Puedes saltarlo y repetirlo cuando quieras desde <b>Ajustes</b>.' },
     { sel: '#ayudaBtn', t: '❓ Ayuda', x: 'Si tienes cualquier duda, toca este botón: ahí están las preguntas más habituales explicadas fácil.' },
     { sel: '.seg', t: '⛽ Combustible o ⚡ Recarga', x: () => (S.cfg.tieneEV ? 'Cambia entre las <b>gasolineras</b> y los <b>puntos de recarga</b> para tu eléctrico. Toda la app se adapta al modo elegido.' : 'Aquí verás las <b>gasolineras</b>. Si algún día tienes un eléctrico, actívalo en Ajustes y aparecerá el modo <b>⚡ Recarga</b>.') },
     { sel: '#btnLoc', t: '📍 Tu ubicación', x: 'La app usa tu GPS al abrirse. Toca aquí para volver a localizarte si te has movido.' },
@@ -1444,8 +1450,18 @@ const tour = (() => {
     { sel: '.bottom [data-v=favs]', t: '★ Favoritas', x: 'Las gasolineras y cargadores que guardes, con su precio actual, estés donde estés.' },
     { sel: '.bottom [data-v=tend]', t: '📊 Gastos', x: 'Apunta tus repostajes y recargas (con «He repostado aquí» en cada ficha) y verás <b>cuánto gastas al mes</b>, cuánto <b>ahorras</b> y el <b>consumo real</b> de cada coche. También cómo evolucionan los precios.' },
     { sel: '.bottom [data-v=ajustes]', t: '⚙️ Ajustes', x: 'Pon los datos de tus coches (litros, consumo, batería, conectores…), edita la lista de marcas low cost y busca actualizaciones.' },
-    { sel: null, t: '🚀 ¡Listo!', x: 'Consejo: <b>añádela a la pantalla de inicio</b> para abrirla como una app más.<br>• iPhone: <b>Compartir → Añadir a pantalla de inicio</b>.<br>• Android: menú <b>⋮ → Instalar aplicación</b>.<br><br>Puedes repetir este tutorial en <b>Ajustes → Ver tutorial</b>.' },
+    { sel: null, t: '🚀 ¡Listo!', x: () => () => (enPantallaInicio() ? 'Ya la tienes en la pantalla de inicio 👍' : esIOS() ? 'Consejo: ponla en la pantalla de inicio. En <b>Safari</b> toca <b>Compartir</b> (□↑) y luego <b>Añadir a pantalla de inicio</b>.' : 'Consejo: ponla en la pantalla de inicio. En <b>Chrome</b> toca el menú <b>⋮</b> y luego <b>Instalar aplicación</b>.') + '<br><br>Puedes repetir este tutorial en <b>Ajustes → Ver tutorial</b>.' },
   ];
+  // modo sencillo: lo justo para empezar
+  const PASOS_S = [
+    { sel: null, t: '👋 ¡Bienvenido!', x: 'Es muy fácil: <b>abres la app y ves las gasolineras que tienes cerca y su precio</b>. Te lo enseño en 5 pasos.' },
+    { sel: '#banner .banner', t: '👍 Nuestra recomendación', x: 'Arriba te decimos cuál te conviene más. Toca <b>🧭 Llévame</b> y el móvil te lleva hasta allí.' },
+    { sel: '#lista .card', t: '🏷️ Cada gasolinera', x: 'El precio sale en <b style="color:var(--ok)">verde</b> si es barato y en <b style="color:var(--bad)">rojo</b> si es caro. Toca <b>🧭 Ir</b> para ir, o la tarjeta para ver más.' },
+    { sel: '.bottom [data-v=favs]', t: '★ Favoritas', x: 'Guarda las gasolineras de siempre y verás aquí su precio de un vistazo.' },
+    { sel: '#ayudaBtn', t: '❓ ¿Dudas?', x: 'Toca este botón cuando quieras: están las preguntas más habituales explicadas fácil.' },
+    { sel: null, t: '🚀 ¡Listo!', x: () => () => (enPantallaInicio() ? 'Ya la tienes en la pantalla de inicio 👍' : esIOS() ? 'Consejo: ponla en la pantalla de inicio. En <b>Safari</b> toca <b>Compartir</b> (□↑) y luego <b>Añadir a pantalla de inicio</b>.' : 'Consejo: ponla en la pantalla de inicio. En <b>Chrome</b> toca el menú <b>⋮</b> y luego <b>Instalar aplicación</b>.') + '<br><br>¿Te vas de viaje? Mira la pestaña <b>🛣️ Ruta</b>.' },
+  ];
+  let PASOS = PASOS_C;
   let i = 0, capa, foco, caja;
 
   function crear() {
@@ -1506,6 +1522,7 @@ const tour = (() => {
   }
   function iniciar() {
     cerrarHoja();
+    PASOS = S.cfg.sencillo ? PASOS_S : PASOS_C;
     // el tutorial se hace sobre la lista de gasolineras
     S.cfg.modo = S.cfg.tieneComb ? 'fuel' : 'ev'; S.cfg.vista = 'lista'; saveCfg(); render();
     $('#v-lista').scrollTop = 0;
@@ -1964,13 +1981,12 @@ const asistente = (() => {
   const PASOS = [
     () => `<div class="aico">⛽⚡</div><h2>¡Hola! Vamos a configurar GasoCerca</h2>
       <p>Te hago unas preguntas rápidas para que los precios, las rutas y los cálculos de «lo que más compensa» se ajusten a <b>tu coche</b>.</p>
-      <p class="muted">Son 5 preguntas y tardas menos de un minuto. Tus respuestas se guardan <b>solo en este móvil</b>: no hay cuentas ni registros y la app es gratis.</p>`,
+      <p class="muted">Son unas pocas preguntas y tardas menos de un minuto. Tus respuestas se guardan <b>solo en este móvil</b>: no hay cuentas ni registros y la app es gratis.</p>`,
     () => `<h2>¿Cómo prefieres ver la app?</h2><p class="muted">Lo puedes cambiar cuando quieras en Ajustes.</p>
       <div class="acards">
         <button type="button" class="acard ${r.sencillo ? 'on' : ''}" data-ac="sencillo" data-fija="1"><span>😊</span><b>Sencilla (recomendada)</b><small>Solo lo importante: precios cerca, un botón para ir y tus favoritas</small></button>
         <button type="button" class="acard ${!r.sencillo ? 'on' : ''}" data-ac="sencillo" data-fija="0"><span>🧰</span><b>Completa</b><small>Todos los filtros, gastos, alertas y estadísticas</small></button>
-      </div>
-      <button type="button" class="acard ${r.letraGrande ? 'on' : ''}" data-ac="letraGrande" data-tog="1" style="margin-top:16px"><span>🔍</span><b>Letra más grande</b><small>Para leer mejor</small></button>`,
+      </div>`,
     () => `<h2>¿Qué coches tienes?</h2><p class="muted">Puedes elegir los dos.</p>
       <div class="acards">
         <button type="button" class="acard ${r.tieneComb ? 'on' : ''}" data-ac="tieneComb" data-tog="1"><span>🚗</span><b>Gasolina, diésel o híbrido</b><small>Ver gasolineras y precios</small></button>
@@ -1995,6 +2011,9 @@ const asistente = (() => {
     () => `<div class="aico">📍</div><h2>Tu ubicación</h2>
       <p>Para enseñarte lo que tienes cerca necesito saber dónde estás. Solo se usa en este móvil.</p>
       <button type="button" class="btn" data-aloc="1" style="width:100%">${S.pos?.gps ? '✅ Ubicación activada' : 'Permitir ubicación'}</button>
+      ${S.pos?.gps ? '' : S.geoError === 1
+        ? `<div class="box" style="margin-top:12px"><b>El móvil no ha dado permiso.</b> ${esIOS() ? 'En iPhone pasa a menudo. Sigue estos pasos y vuelve a tocar el botón:' : 'Sigue estos pasos y vuelve a tocar el botón:'}${pasosUbicacion()}</div>`
+        : esIOS() ? '<p class="muted" style="margin-top:12px">📱 <b>En iPhone</b>: si al tocar el botón no sale ningún aviso, ve a <b>Ajustes → Privacidad y seguridad → Localización → Sitios web de Safari</b> y elige <b>Al usar la app</b> o <b>Preguntar la próxima vez</b>. Luego vuelve aquí y toca el botón otra vez.</p>' : ''}
       <p class="muted" style="margin-top:10px">Si no quieres, puedes buscar un pueblo o un código postal en cualquier momento.</p>`,
   ];
   const aplica = (i) => (i === 3 ? r.tieneComb : i === 4 ? r.tieneEV : true);
@@ -2015,7 +2034,7 @@ const asistente = (() => {
   }
   function terminar(saltado) {
     if (!saltado) {
-      for (const k of ['sencillo', 'letraGrande', 'tieneComb', 'tieneEV', 'fuel', 'litros', 'consumo', 'combNombre', 'evModelo', 'bat', 'conectores', 'dcKw', 'acKw', 'kwhCasa', 'valorHora', 'radio']) if (r[k] !== undefined) S.cfg[k] = r[k];
+      for (const k of ['sencillo', 'tieneComb', 'tieneEV', 'fuel', 'litros', 'consumo', 'combNombre', 'evModelo', 'bat', 'conectores', 'dcKw', 'acKw', 'kwhCasa', 'valorHora', 'radio']) if (r[k] !== undefined) S.cfg[k] = r[k];
       if (S.cfg.conectores.includes('t2') && !S.cfg.conectores.includes('t2c')) S.cfg.conectores = [...S.cfg.conectores, 't2c'];
       S.cfg.modo = S.cfg.tieneComb ? 'fuel' : 'ev';
     }
@@ -2030,7 +2049,7 @@ const asistente = (() => {
   function iniciar() {
     cerrarHoja();
     const c = S.cfg;
-    r = { sencillo: c.sencillo, letraGrande: c.letraGrande, tieneComb: c.tieneComb, tieneEV: c.tieneEV, fuel: c.fuel, litros: c.litros, consumo: c.consumo, combNombre: c.combNombre, evModelo: c.evModelo, bat: c.bat,
+    r = { sencillo: c.sencillo, tieneComb: c.tieneComb, tieneEV: c.tieneEV, fuel: c.fuel, litros: c.litros, consumo: c.consumo, combNombre: c.combNombre, evModelo: c.evModelo, bat: c.bat,
       conectores: c.conectores.filter((x) => x !== 't2c'), dcKw: c.dcKw, acKw: c.acKw, kwhCasa: c.kwhCasa, valorHora: c.valorHora, radio: c.radio };
     paso = 0;
     if (!el) {
@@ -2042,12 +2061,11 @@ const asistente = (() => {
         if (b.dataset.anav === 'sig') { if (paso === 2 && !r.tieneComb && !r.tieneEV) { toast('Elige al menos un coche'); return; } ir(1); }
         else if (b.dataset.anav === 'atras') ir(-1);
         else if (b.dataset.anav === 'saltar') terminar(true);
-        else if (b.dataset.aloc) { localizar(); setTimeout(pinta, 2500); }
+        else if (b.dataset.aloc) { S.geoError = 0; localizar(true); [1500, 4000, 9000].forEach((ms) => setTimeout(() => el && paso === PASOS.length - 1 && pinta(), ms)); }
         else if (b.dataset.ac) {
           const k = b.dataset.ac;
           if (b.dataset.fija) r[k] = b.dataset.fija === '1';
           else if (b.dataset.tog) r[k] = !r[k];
-          if (k === 'letraGrande') document.body.classList.toggle('grande', !!r[k]);
           else if (b.dataset.fija || b.dataset.tog) { /* ya hecho */ }
           else if (b.dataset.multi) { const st = new Set(r[k]); st.has(b.dataset.val) ? st.delete(b.dataset.val) : st.add(b.dataset.val); r[k] = [...st]; }
           else r[k] = isNaN(+b.dataset.val) ? b.dataset.val : +b.dataset.val;
@@ -2080,7 +2098,9 @@ function ayuda() {
     ['¿Cómo guardo mis gasolineras de siempre?', 'Abre una gasolinera y toca <b>☆ Guardar en favoritas</b>. Las verás en la pestaña <b>★ Favoritas</b>.'],
     ['¿Y si me voy de viaje?', 'En la pestaña <b>🛣️ Ruta</b> escribe adónde vas y te enseña las gasolineras que te pillan de camino.'],
     ['No me sale mi ubicación', 'Seguramente el móvil no le ha dado permiso a la app. <button class="lnk" id="geoAyuda">Ver cómo activarla</button>'],
-    ['¿Cuesta dinero? ¿Qué pasa con mis datos?', 'Es <b>gratis</b> y no hay que registrarse. Lo que configuras se guarda <b>solo en tu móvil</b>; nadie más lo ve.'],
+    ['¿Cuesta dinero? ¿Qué pasa con mis datos?', 'Es <b>gratis</b>, sin anuncios y no hay que registrarse. Lo que configuras (coche, favoritas…) se guarda <b>solo en tu móvil</b>; nadie más lo ve. Para mostrarte el mapa, buscar sitios o calcular rutas, el móvil se conecta a servicios públicos de OpenStreetMap, que, como cualquier web, ven tu dirección IP.'],
+    ['¿De dónde salen los precios?', 'Del <b>Geoportal de Carburantes</b> del Ministerio para la Transición Ecológica y el Reto Demográfico (datos abiertos). Los mapas, los puntos de recarga y las rutas son de © colaboradores de <b>OpenStreetMap</b>. Esta app <b>no es oficial</b> ni está relacionada con el Ministerio.'],
+    ['Aviso', 'GasoCerca se ofrece gratis y tal cual, sin garantías. Los precios, horarios y datos de recarga pueden tener retrasos o errores: <b>confirma siempre en la gasolinera</b>. Los cálculos de ahorro, consumo y tiempo son orientativos.'],
     ['¿Cómo la pongo en la pantalla de inicio?', ios ? 'En Safari toca <b>Compartir</b> (□↑) y luego <b>Añadir a pantalla de inicio</b>.' : 'En Chrome toca el menú <b>⋮</b> y luego <b>Instalar aplicación</b> o <b>Añadir a pantalla de inicio</b>.'],
     ['Quiero ver más opciones', S.cfg.sencillo ? 'En <b>Ajustes → Cómo ver la app</b> elige <b>🧰 Completa</b>: verás filtros por marca, low cost, gastos, alertas de precio y más.' : 'Ya estás en el modo completo. Si lo ves demasiado lleno, en <b>Ajustes</b> elige <b>😊 Sencilla</b>.'],
   ];

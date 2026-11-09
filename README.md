@@ -27,9 +27,16 @@ Sin servidores de pago ni anuncios: todo se aloja gratis en **GitHub Pages**, y 
 Basta con mandar el enlace de la app (`https://TU-USUARIO.github.io/NOMBRE-DEL-REPO/`). Es **gratis** y **no hay cuentas**:
 
 - La primera vez que alguien la abre, un **asistente** le pregunta su combustible, cuánto reposta, su consumo, cuánto vale su tiempo y, si quiere, los datos de su coche eléctrico (es opcional).
-- Empieza en **modo sencillo**: solo precios cerca, un botón grande para ir y favoritas. Hay botón de **ayuda (?)** arriba y opción de **letra grande**. En Ajustes se puede pasar al **modo completo**.
+- Empieza en **modo sencillo**: solo precios cerca, un botón grande para ir y favoritas. Hay un botón de **ayuda (?)** arriba. En Ajustes se puede pasar al **modo completo**.
 - Todo se guarda **solo en su móvil**. Nadie ve los datos de nadie, y en GitHub solo están los precios públicos.
 - Cada uno puede cambiarlo después en **Ajustes** o repetir el asistente con **Volver a configurar**.
+
+### Límites y buenas prácticas
+
+- **GitHub Pages** es gratis y no cobra nunca: tiene un límite *orientativo* de 100 GB de tráfico al mes. Cada vez que alguien abre la app descarga unos 0,5 MB, así que da para decenas de miles de aperturas al mes. Si algún día se superara, GitHub avisa por correo; no hay cargos.
+- Los **mapas, el buscador y las rutas** usan servidores públicos y gratuitos de OpenStreetMap pensados para un uso moderado y no comercial. Para familia y amigos va sobrado; si la app se hiciera muy popular habría que pasar a otro proveedor.
+- Los **precios** son datos abiertos del Ministerio (MITECO): se pueden reutilizar citando la fuente y la fecha, sin alterarlos y sin dar a entender que el Ministerio respalda la app. La app ya lo hace (Ayuda → «¿De dónde salen los precios?» y «Aviso»).
+- No uses la app con fines comerciales (anuncios, cobrar por ella) sin revisar antes las condiciones de GitHub Pages y de OpenStreetMap.
 
 ## Publicarla (una sola vez, unos 5 minutos)
 
